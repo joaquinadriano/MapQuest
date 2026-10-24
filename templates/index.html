@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff"><meta name="description" content="Plan a route with MapQuest. Compare driving, cycling and walking directions.">
+  <title>MapQuest — Route planner</title>
+  <link rel="preconnect" href="https://api.mapbox.com">
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.33.0/mapbox-gl.css" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body data-mapbox-token="{{ mapbox_token }}">
+  <main class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <header class="brand-row">
+        <a class="brand" href="/" aria-label="MapQuest home"><span class="brand-icon"><i data-lucide="map"></i></span><span>Map<span class="brand-accent">Quest</span></span></a>
+        <button class="icon-button mobile-map-button" id="collapseSheet" aria-label="Collapse planner"><i data-lucide="chevron-down"></i></button>
+      </header>
+      <section class="planner-card" aria-label="Route planner">
+        <div class="section-heading"><div><h1>Plan your route</h1><p>Find the best way to get there.</p></div><span class="live-pill"><span></span> Live</span></div>
+        <form id="routeForm" autocomplete="off">
+          <div class="locations">
+            <div class="location-rail" aria-hidden="true"><span class="rail-origin"></span><span class="rail-line"></span><span class="rail-destination"></span></div>
+            <div class="location-fields">
+              <div class="autocomplete-wrap"><label class="sr-only" for="originInput">Starting point</label><input id="originInput" placeholder="Choose starting point" maxlength="160" required aria-autocomplete="list" aria-controls="originSuggestions"><div class="suggestions" id="originSuggestions" role="listbox"></div></div>
+              <button type="button" class="swap-button" id="swapButton" aria-label="Swap starting point and destination"><i data-lucide="arrow-up-down"></i></button>
+              <div class="autocomplete-wrap"><label class="sr-only" for="destinationInput">Destination</label><input id="destinationInput" placeholder="Choose destination" maxlength="160" required aria-autocomplete="list" aria-controls="destinationSuggestions"><div class="suggestions" id="destinationSuggestions" role="listbox"></div></div>
+            </div>
+          </div>
+          <div class="mode-row" role="group" aria-label="Travel mode">
+            <button type="button" class="mode-button active" data-mode="car" aria-pressed="true"><i data-lucide="car-front"></i><span>Drive</span></button>
+            <button type="button" class="mode-button" data-mode="bike" aria-pressed="false"><i data-lucide="bike"></i><span>Cycle</span></button>
+            <button type="button" class="mode-button" data-mode="foot" aria-pressed="false"><i data-lucide="person-standing"></i><span>Walk</span></button>
+          </div>
+          <button type="submit" id="findRoute" class="primary-button"><i data-lucide="search"></i><span>Find route</span></button>
+          <div id="statusMessage" class="status-message" role="status" aria-live="polite"></div>
+        </form>
+      </section>
+
+      <section class="unit-row"><div><span class="small-label">Distance units</span><span class="small-hint">Change how distances appear</span></div><div class="segmented" role="group" aria-label="Distance units"><button type="button" data-unit="metric" class="selected">km</button><button type="button" data-unit="imperial">mi</button></div></section>
+
+      <div class="results-scroll" id="resultsScroll">
+        <section id="routeSummary" class="route-summary hidden" aria-live="polite"></section>
+        <section id="comparisonSection" class="content-section hidden"><div class="section-title"><div><h2>Compare modes</h2><span class="caption">Same route, different ways</span></div><button class="text-button" id="compareButton">Compare</button></div><div id="comparisonList" class="comparison-list"><p class="empty-note">Compare available modes to see distance and estimated time.</p></div></section>
+        <section id="fuelSection" class="content-section hidden"><div class="section-title"><h2>Fuel estimate</h2><i data-lucide="fuel" class="title-icon"></i></div><div class="fuel-grid"><label>Fuel price <span><span class="peso">₱</span><input id="fuelPrice" type="number" min="0" max="300" step="0.01" value="65.00" aria-label="Fuel price per liter in Philippine pesos"><small>/ L</small></span></label><label>Efficiency <span><input id="fuelEfficiency" type="number" min="1" max="100" step="0.1" value="12" aria-label="Fuel efficiency in kilometers per liter"><small>km/L</small></span></label></div><div id="fuelResult" class="fuel-result"></div><p class="fine-print">Estimate excludes tolls, parking, and changing traffic conditions.</p></section>
+        <section id="directionsSection" class="content-section hidden"><div class="section-title"><h2>Directions</h2><span id="instructionCount" class="count-badge"></span></div><ol id="directionsList" class="directions-list"></ol></section>
+        <section class="content-section saved-section"><div class="section-title"><h2>Recent trips</h2><button class="text-button" id="clearHistoryButton">Clear</button></div><div id="historyList" class="saved-list"><p class="empty-note">Your recent routes will appear here.</p></div></section>
+      </div>
+      <footer class="sidebar-footer"><span>Maps by Mapbox</span></footer>
+    </aside>
+    <section class="map-area" aria-label="Map and route">
+      <div id="map" role="application" aria-label="Interactive route map"></div>
+      <div class="map-topbar"><div class="map-search-hint"><i data-lucide="map-pin"></i><span>Explore your route</span></div><div class="map-actions"><button id="locateButton" class="map-action" aria-label="Show your current location" title="Show my location"><i data-lucide="locate-fixed"></i></button><button id="mapThemeButton" class="map-action" aria-label="Switch to satellite map" title="Switch map style"><i data-lucide="layers-2"></i></button></div></div>
+      {% if not mapbox_token %}<div class="map-unavailable" id="mapUnavailable"><strong>Mapbox access token required</strong><span>Add your public <code>MAPBOX_ACCESS_TOKEN</code> to <code>.env</code> and restart MapQuest.</span></div>{% endif %}
+      <div id="mapToast" class="map-toast hidden"></div>
+      <button class="mobile-expand" id="expandSheet"><i data-lucide="panel-top-open"></i><span>Plan a route</span></button>
+    </section>
+  </main>
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.33.0/mapbox-gl.js"></script>
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

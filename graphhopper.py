@@ -1,8 +1,13 @@
 import requests
 import urllib.parse
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
 route_url = "https://graphhopper.com/api/1/route?"
-key = "c34f78dc-0bac-4d61-8a57-e2c2daf9ca92"  # Replace with your Graphhopper API key
+key = os.getenv("GRAPHHOPPER_API_KEY", "").strip()
+if not key:
+    raise RuntimeError("Set GRAPHHOPPER_API_KEY in your .env file before starting the CLI.")
 
 
 def geocoding(location, key):
