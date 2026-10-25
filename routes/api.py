@@ -1,6 +1,7 @@
 """JSON endpoints for location search and route planning."""
 
 from collections import defaultdict, deque
+from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 from time import monotonic
 
@@ -25,6 +26,15 @@ def limit_graphhopper_requests():
     now = monotonic()
     client = request.remote_addr or "unknown"
     with _rate_limit_lock:
+        # Prune inactive buckets to prevent memory leaks over time
+        stale_clients = [
+            key
+            for key, timestamps in _request_buckets.items()
+            if not timestamps or now - timestamps[-1][0] >= _RATE_WINDOW_SECONDS
+        ]
+        for key in stale_clients:
+            del _request_buckets[key]
+
         bucket = _request_buckets[client]
         while bucket and now - bucket[0][0] >= _RATE_WINDOW_SECONDS:
             bucket.popleft()
@@ -46,25 +56,74 @@ def geocode_endpoint():
 @api.post("/api/route")
 def route_endpoint():
     body = request.get_json(silent=True) or {}
-    origin, destination = clean_place(body.get("origin"), "Origin"), clean_place(body.get("destination"), "Destination")
-    route = route_for(origin, destination, str(body.get("mode", "car")))
+    origin = clean_place(body.get("origin"), "Origin")
+    destination = clean_place(body.get("destination"), "Destination")
+
+    if abs(origin["lat"] - destination["lat"]) < 1e-6 and abs(origin["lng"] - destination["lng"]) < 1e-6:
+        raise ServiceError("Origin and destination cannot be the same place.", 400)
+
+    kwargs = {}
+    if "fuel_efficiency" in body:
+        try:
+            kwargs["fuel_efficiency"] = float(body["fuel_efficiency"])
+        except (TypeError, ValueError):
+            pass
+    if "fuel_price" in body:
+        try:
+            kwargs["fuel_price"] = float(body["fuel_price"])
+        except (TypeError, ValueError):
+            pass
+
+    route = route_for(
+        origin,
+        destination,
+        str(body.get("mode", "car")),
+        **kwargs,
+    )
     return jsonify({"route": route, "origin": origin, "destination": destination})
 
 
 @api.post("/api/compare")
 def compare_endpoint():
     body = request.get_json(silent=True) or {}
-    origin, destination = clean_place(body.get("origin"), "Origin"), clean_place(body.get("destination"), "Destination")
-    results = []
-    for mode in PROFILES:
+    origin = clean_place(body.get("origin"), "Origin")
+    destination = clean_place(body.get("destination"), "Destination")
+
+    if abs(origin["lat"] - destination["lat"]) < 1e-6 and abs(origin["lng"] - destination["lng"]) < 1e-6:
+        raise ServiceError("Origin and destination cannot be the same place.", 400)
+
+    modes = list(PROFILES.keys())
+    results_map: dict[str, dict] = {}
+
+    def fetch_profile_route(target_mode: str) -> tuple[str, dict]:
         try:
-            result = route_for(origin, destination, mode)
-            results.append({"mode": mode, "available": True, "distance_m": result["distance_m"], "duration_ms": result["duration_ms"]})
+            res = route_for(origin, destination, target_mode)
+            return target_mode, {
+                "mode": target_mode,
+                "available": True,
+                "distance_m": res["distance_m"],
+                "duration_ms": res["duration_ms"],
+                "summary": res.get("summary"),
+            }
         except ServiceError as exc:
-            results.append({"mode": mode, "available": False, "error": str(exc)})
+            return target_mode, {
+                "mode": target_mode,
+                "available": False,
+                "error": str(exc),
+            }
+
+    # Fetch comparison profiles concurrently to minimize latency
+    with ThreadPoolExecutor(max_workers=len(modes)) as executor:
+        futures = [executor.submit(fetch_profile_route, mode) for mode in modes]
+        for future in futures:
+            mode_name, data = future.result()
+            results_map[mode_name] = data
+
+    results = [results_map[mode] for mode in modes]
     return jsonify({"comparison": results})
 
 
 @api.errorhandler(ServiceError)
 def handle_service_error(error):
     return jsonify({"error": str(error)}), error.status
+

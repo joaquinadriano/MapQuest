@@ -41,15 +41,39 @@ class MapQuestEndpointTests(unittest.TestCase):
 
     @patch.object(routes_api, "route_for")
     def test_compare_reports_available_and_unavailable_profiles(self, route_for):
-        route_for.side_effect = [
-            {"distance_m": 1000, "duration_ms": 60000},
-            ServiceError("Bike profile unavailable"),
-            {"distance_m": 1200, "duration_ms": 900000},
-        ]
+        # ThreadPoolExecutor runs concurrently; mock function returning per mode
+        def mock_route_for(_origin, _dest, mode, **_kwargs):
+            if mode == "bike":
+                raise ServiceError("Bike profile unavailable", 400)
+            return {"distance_m": 1000, "duration_ms": 60000}
+
+        route_for.side_effect = mock_route_for
         response = self.client.post("/api/compare", json={"origin": self.origin, "destination": self.destination})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual([item["available"] for item in response.json["comparison"]], [True, False, True])
-        self.assertEqual(response.json["comparison"][1]["error"], "Bike profile unavailable")
+        modes_result = {item["mode"]: item for item in response.json["comparison"]}
+        self.assertTrue(modes_result["car"]["available"])
+        self.assertFalse(modes_result["bike"]["available"])
+        self.assertEqual(modes_result["bike"]["error"], "Bike profile unavailable")
+        self.assertTrue(modes_result["foot"]["available"])
+
+    def test_route_rejects_identical_origin_and_destination(self):
+        response = self.client.post("/api/route", json={"origin": self.origin, "destination": self.origin, "mode": "car"})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("cannot be the same", response.json.get("error", ""))
+
+    def test_compare_rejects_identical_origin_and_destination(self):
+        response = self.client.post("/api/compare", json={"origin": self.origin, "destination": self.origin})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("cannot be the same", response.json.get("error", ""))
+
+    @patch.object(routes_api, "route_for", return_value={"mode": "car", "distance_m": 5200, "duration_ms": 780000})
+    def test_route_forwards_custom_fuel_params(self, route_for):
+        response = self.client.post(
+            "/api/route",
+            json={"origin": self.origin, "destination": self.destination, "fuel_efficiency": 15.5, "fuel_price": 70.0},
+        )
+        self.assertEqual(response.status_code, 200)
+        route_for.assert_called_once_with(self.origin, self.destination, "car", fuel_efficiency=15.5, fuel_price=70.0)
 
 
 if __name__ == "__main__":

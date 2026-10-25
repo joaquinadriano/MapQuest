@@ -122,8 +122,8 @@ In your browser, open [http://127.0.0.1:5000](http://127.0.0.1:5000). This addre
 ## API integrations
 
 - `GET /api/geocode?q=...` requests up to five GraphHopper place suggestions.
-- `POST /api/route` calculates the selected profile route. The API returns meter distance, millisecond duration, coordinates, and instructions.
-- `POST /api/compare` attempts car, bike, and foot independently and includes unavailable profile explanations.
+- `POST /api/route` calculates the selected profile route. Returns meter distance, millisecond duration, coordinates, turn-by-turn instructions, and enriched metric/imperial summaries with fuel estimates.
+- `POST /api/compare` queries car, bike, and foot profiles concurrently using Python thread workers, returning profile availability and metrics.
 
 GraphHopper requests are made by the Flask server so the GraphHopper key is not sent to the browser. Mapbox GL JS loads Mapbox Standard in the browser using the public Mapbox token. Requests have connect/read timeouts, input validation, and a per-client in-memory limit of 20 weighted GraphHopper requests per minute (mode comparison counts as three).
 
