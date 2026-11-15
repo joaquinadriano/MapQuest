@@ -1,6 +1,6 @@
 # MapQuest
 
-MapQuest turns the original GraphHopper-powered command-line route finder into a responsive browser app. Search for places, plan driving/cycling/walking routes, compare profile availability, review turn-by-turn directions, and estimate driving fuel costs.
+MapQuest turns the original GraphHopper-powered command-line route finder into a responsive browser app. Search for places, plan driving/cycling/walking routes, compare profile availability, review turn-by-turn directions, and estimate driving fuel costs. Serves as Final Exam Project for CCNA DevNet Associate
 
 ## Features
 
