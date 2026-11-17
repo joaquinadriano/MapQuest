@@ -87,10 +87,10 @@ test('formats temperature and rain chance', () => {
   assert.equal(w.rainChance(reading({ pop: 0.47 })), '47%');
 });
 
-test('transit riders get advice about the walk to stops', () => {
-  const rainy = w.tripAdvice({ weather: weather([0, 0.7]), mode: 'transit', depart: NOW + 3 * HOUR, arrive: NOW + 3.5 * HOUR, now: NOW });
-  assert.match(rainy[0].text, /walk to and from stops/);
-  const storm = w.tripAdvice({ weather: weather([0.9, 0.9], { code: 211 }), mode: 'transit', depart: NOW + 3 * HOUR, arrive: NOW + 4 * HOUR, now: NOW });
+test('commuters get advice about walking and waiting at stops', () => {
+  const rainy = w.tripAdvice({ weather: weather([0, 0.7]), mode: 'commute', depart: NOW + 3 * HOUR, arrive: NOW + 3.5 * HOUR, now: NOW });
+  assert.match(rainy[0].text, /waiting at stops/);
+  const storm = w.tripAdvice({ weather: weather([0.9, 0.9], { code: 211 }), mode: 'commute', depart: NOW + 3 * HOUR, arrive: NOW + 4 * HOUR, now: NOW });
   assert.equal(storm[0].level, 'warn');
-  assert.match(storm[0].text, /delays/);
+  assert.match(storm[0].text, /fewer jeeps/);
 });

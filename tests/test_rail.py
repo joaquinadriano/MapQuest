@@ -102,6 +102,14 @@ class RailPlannerTests(unittest.TestCase):
             rail.rail_routes(alabang, AYALA, MORNING)
         self.assertEqual(ctx.exception.status, 404)
 
+    def test_two_halves_of_a_transfer_are_not_a_train_trip(self):
+        # UST to Quiapo: the nearest stations are Recto (LRT-2) and Doroteo Jose (LRT-1),
+        # which are one transfer walk apart. That is not a ride, so walking wins.
+        ust, quiapo_church = {"lat": 14.6096, "lng": 120.9894}, {"lat": 14.5988, "lng": 120.9838}
+        with self.assertRaises(ServiceError) as ctx:
+            rail.rail_routes(ust, quiapo_church, MORNING)
+        self.assertEqual(ctx.exception.status, 404)
+
     def test_notice_when_trains_may_not_be_running(self):
         self.assertEqual(rail.rail_routes(CUBAO, AYALA, MORNING)[0]["notice"], "")
         self.assertIn("4:30 AM", rail.rail_routes(CUBAO, AYALA, LATE_NIGHT)[0]["notice"])

@@ -48,20 +48,21 @@ export function tripAdvice({ weather, mode, depart, arrive, now = Date.now() }) 
   const readings = [start, end].filter(Boolean);
   if (!readings.length) return [];
   const exposed = mode === 'foot' || mode === 'bike';
-  const transit = mode === 'transit'; // Dry while riding, but walks to and from stops are outdoors.
+  // Commuters stay mostly dry while riding, but walk to stops and wait outside for jeeps and buses.
+  const transit = mode === 'commute' || mode === 'transit';
   const rain = worstRain(readings);
   const hottest = readings.reduce((max, reading) => Math.max(max, reading.feels_like_c), -Infinity);
   const heat = heatRisk({ feels_like_c: hottest });
   const advice = [];
 
   if (rain === 'heavy' && transit) {
-    advice.push({ level: 'warn', text: 'Heavy rain or thunderstorms are expected. Expect delays and crowded stations, and watch for flooded walkways to and from stops.' });
+    advice.push({ level: 'warn', text: 'Heavy rain or thunderstorms are expected. Expect fewer jeeps, long lines and crowded stations, and watch for flooded streets on the way to stops.' });
   } else if (rain === 'heavy') {
     advice.push({ level: 'warn', text: exposed
       ? 'Heavy rain or thunderstorms are expected. Streets may flood, so walking or cycling is not advised. Consider driving or another time.'
       : 'Heavy rain or thunderstorms are expected. Allow extra time and avoid flooded roads.' });
   } else if (rain === 'likely' && transit) {
-    advice.push({ level: 'info', text: 'Rain is likely. Bring an umbrella for the walk to and from stops.' });
+    advice.push({ level: 'info', text: 'Rain is likely. Bring an umbrella for walking and waiting at stops.' });
   } else if (rain === 'likely') {
     advice.push({ level: exposed ? 'warn' : 'info', text: exposed ? 'Rain is likely during your trip. Bring an umbrella or rain gear.' : 'Rain is likely during your trip. Traffic may be slower than usual.' });
   } else if (rain === 'possible' && exposed) {
