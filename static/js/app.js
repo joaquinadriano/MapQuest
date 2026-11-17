@@ -11,7 +11,8 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     localStorage.removeItem(`mapquest-${key}`);
   });
   const state = { mode: localStorage.getItem('maply-mode') || 'car', unit: localStorage.getItem('maply-unit') || 'metric', origin: null, destination: null, route: null, comparison: null, map: null, mapReady: false, pendingRoute: null, markers: [], userMarker: null, satellite: false, busy: false, comparing: false, alternatives: {}, loadingAlternatives: null, departAt: null, weather: null };
-  const modes = { car: { name: 'Drive', verb: 'Driving', icon: 'car-front' }, bike: { name: 'Cycle', verb: 'Cycling', icon: 'bike' }, foot: { name: 'Walk', verb: 'Walking', icon: 'footprints' } };
+  const modes = { car: { name: 'Drive', verb: 'Driving', icon: 'car-front' }, bike: { name: 'Cycle', verb: 'Cycling', icon: 'bike' }, foot: { name: 'Walk', verb: 'Walking', icon: 'footprints' }, transit: { name: 'Transit', verb: 'By transit', icon: 'train-front' } };
+  const VEHICLE_ICONS = { train: 'train-front', bus: 'bus', jeepney: 'bus-front', ferry: 'ship' };
   if (!modes[state.mode]) state.mode = 'car';
   const GREEN = '#37ab2f';
   const ALTERNATIVE_GREY = '#8f978d';
@@ -64,8 +65,8 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
 
   function clearMapRoute() {
     if (!state.map || !state.mapReady) return;
-    ['planned-route', 'planned-route-casing', 'alternative-routes'].forEach((id) => { if (state.map.getLayer(id)) state.map.removeLayer(id); });
-    ['planned-route', 'alternative-routes'].forEach((id) => { if (state.map.getSource(id)) state.map.removeSource(id); });
+    ['planned-route', 'planned-route-casing', 'alternative-routes', 'transit-walk', 'transit-ride'].forEach((id) => { if (state.map.getLayer(id)) state.map.removeLayer(id); });
+    ['planned-route', 'alternative-routes', 'transit-legs'].forEach((id) => { if (state.map.getSource(id)) state.map.removeSource(id); });
     state.markers.forEach((marker) => marker.remove());
     state.markers = [];
   }
@@ -91,7 +92,15 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     }
     state.map.addSource('planned-route', { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: route.geometry.map(([lat, lng]) => [lng, lat]) } } });
     state.map.addLayer({ id: 'planned-route-casing', type: 'line', source: 'planned-route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 11 } });
-    state.map.addLayer({ id: 'planned-route', type: 'line', source: 'planned-route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': GREEN, 'line-width': 7, ...(dashed ? { 'line-dasharray': [0.1, 1.8] } : {}) } });
+    if (route.legs) {
+      // Transit: each ride in its line's colour, walks dotted.
+      const features = route.legs.filter((leg) => leg.geometry.length > 1).map((leg) => ({ type: 'Feature', properties: { kind: leg.type, color: leg.color || GREEN }, geometry: { type: 'LineString', coordinates: leg.geometry.map(([lat, lng]) => [lng, lat]) } }));
+      state.map.addSource('transit-legs', { type: 'geojson', data: { type: 'FeatureCollection', features } });
+      state.map.addLayer({ id: 'transit-walk', type: 'line', source: 'transit-legs', filter: ['==', ['get', 'kind'], 'walk'], layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#5f655d', 'line-width': 5, 'line-dasharray': [0.1, 1.8] } });
+      state.map.addLayer({ id: 'transit-ride', type: 'line', source: 'transit-legs', filter: ['==', ['get', 'kind'], 'transit'], layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': 7 } });
+    } else {
+      state.map.addLayer({ id: 'planned-route', type: 'line', source: 'planned-route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': GREEN, 'line-width': 7, ...(dashed ? { 'line-dasharray': [0.1, 1.8] } : {}) } });
+    }
     const start = new mapboxgl.Marker({ element: makeMarker(), anchor: 'center' }).setLngLat([origin.lng, origin.lat]).setPopup(new mapboxgl.Popup({ offset: 16 }).setHTML(`<strong>Start</strong><br>${escapeHtml(origin.name)}`)).addTo(state.map);
     const end = new mapboxgl.Marker({ element: makeMarker(true), anchor: 'center' }).setLngLat([destination.lng, destination.lat]).setPopup(new mapboxgl.Popup({ offset: 16 }).setHTML(`<strong>Destination</strong><br>${escapeHtml(destination.name)}`)).addTo(state.map);
     state.markers.push(start, end);
@@ -130,26 +139,63 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     const route = state.route; if (!route) return;
     const time = durationParts(route.duration_ms);
     $('#routeSummary').classList.remove('hidden');
-    $('#routeSummary').innerHTML = `<div class="journey-head"><div class="journey-time"><strong>${time.value}</strong><span>${time.unit}</span></div><div class="journey-arrive">${state.departAt ? `Leave ${whenText(state.departAt)}, arrive` : 'Arrive around'}<strong>${arrivalTime(route.duration_ms)}</strong></div></div><div class="journey-meta"><span class="mode-chip"><i data-lucide="${modes[state.mode].icon}"></i>${modes[state.mode].verb}</span><span>${formatDistance(route.distance_m)}</span></div>`;
+    $('#routeSummary').innerHTML = `<div class="journey-head"><div class="journey-time"><strong>${time.value}</strong><span>${time.unit}</span></div><div class="journey-arrive">${state.departAt ? `Leave ${whenText(state.departAt)}, arrive` : 'Arrive around'}<strong>${route.arrive_time ? whenText(route.arrive_time) : arrivalTime(route.duration_ms)}</strong></div></div><div class="journey-meta"><span class="mode-chip"><i data-lucide="${modes[state.mode].icon}"></i>${modes[state.mode].verb}</span><span>${route.legs ? transitSummary(route) : formatDistance(route.distance_m)}</span></div>${route.legs ? `<div class="line-chips">${lineChips(route)}</div>` : ''}`;
     icons();
+  }
+
+  // Start or destination row in the step list, with a star to save the place.
+  function timelineStop(place, end = false) {
+    const li = document.createElement('li'); li.className = `timeline-stop${end ? ' end' : ''}`;
+    const saved = findSavedPlace(place);
+    li.innerHTML = `<span class="timeline-node"></span><span class="timeline-place">${saved ? `<span class="saved-tag">${escapeHtml(saved.label)}</span>` : ''}${escapeHtml(place.name)}</span>`;
+    const star = document.createElement('button'); star.type = 'button'; star.className = `star-button${saved ? ' saved' : ''}`;
+    star.setAttribute('aria-label', saved ? `Edit saved place ${saved.label}` : `Save ${place.name}`);
+    star.title = saved ? 'Edit saved place' : 'Save this place';
+    star.innerHTML = '<i data-lucide="star"></i>';
+    star.addEventListener('click', () => openPlaceDialog(place, saved || null));
+    li.appendChild(star); return li;
+  }
+
+  /* ---------- Transit details ---------- */
+
+  const fareText = (fare) => (fare ? `₱${Number(fare.amount).toLocaleString('en-PH', { maximumFractionDigits: 2 })} fare` : '');
+  const transitSummary = (route) => [fareText(route.fare), route.transfers ? `${route.transfers} transfer${route.transfers === 1 ? '' : 's'}` : 'No transfers', `${formatStepDistance(route.walk_m || 0)} walking`].filter(Boolean).join(', ');
+  // Coloured chips for each ride, e.g. [MRT-3] > [LRT-1].
+  const lineChips = (route) => route.legs.filter((leg) => leg.type === 'transit').map((leg) => `<span class="line-chip" style="${leg.color ? `background:${escapeHtml(leg.color)};color:${escapeHtml(leg.text_color || '#fff')}` : ''}"><i data-lucide="${VEHICLE_ICONS[leg.vehicle] || 'bus'}"></i>${escapeHtml(leg.line)}</span>`).join('<i data-lucide="chevron-right" class="chip-sep"></i>');
+
+  function renderTransitSteps(list) {
+    const legs = state.route.legs;
+    $('#instructionCount').textContent = `${legs.filter((leg) => leg.type === 'transit').length} ride${legs.filter((leg) => leg.type === 'transit').length === 1 ? '' : 's'}`;
+    legs.forEach((leg, index) => {
+      const item = document.createElement('li'); item.className = `direction-item transit-leg ${leg.type}`; item.tabIndex = 0;
+      const minutes = Math.max(1, Math.round(leg.duration_ms / 60000));
+      if (leg.type === 'walk') {
+        const next = legs[index + 1]; const target = next?.from_stop ? `to ${next.from_stop}` : `to ${state.destination.name}`;
+        item.innerHTML = `<span class="turn-icon"><i data-lucide="footprints"></i></span><span class="direction-text">Walk ${escapeHtml(target)}<small>${minutes} min</small></span><span class="direction-distance">${formatStepDistance(leg.distance_m)}</span>`;
+      } else {
+        const style = leg.color ? ` style="background:${escapeHtml(leg.color)};color:${escapeHtml(leg.text_color || '#fff')}"` : '';
+        const times = leg.depart_time ? `${clock(leg.depart_time)} to ${clock(leg.arrive_time)}` : `${minutes} min`;
+        item.innerHTML = `<span class="turn-icon ride"${style}><i data-lucide="${VEHICLE_ICONS[leg.vehicle] || 'bus'}"></i></span><span class="direction-text"><strong>${escapeHtml(leg.vehicle_name || 'Ride')} ${escapeHtml(leg.line)}</strong>${leg.headsign ? ` toward ${escapeHtml(leg.headsign)}` : ''}<small>Board at ${escapeHtml(leg.from_stop)}, get off at ${escapeHtml(leg.to_stop)}${leg.stops ? ` (${leg.stops} stop${leg.stops === 1 ? '' : 's'})` : ''}</small><small>${times}</small></span><span class="direction-distance">${minutes} min</span>`;
+      }
+      const focusLeg = () => { const point = leg.geometry[0]; if (point && state.map) { state.map.flyTo({ center: [point[1], point[0]], zoom: Math.max(state.map.getZoom(), 15) }); if (isMobile()) $('#sidebar').classList.add('collapsed'); } };
+      item.addEventListener('click', focusLeg);
+      item.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); focusLeg(); } });
+      list.appendChild(item);
+    });
   }
 
   function renderDirections() {
     const list = $('#directionsList'); list.innerHTML = '';
+    if (state.route.legs) {
+      list.appendChild(timelineStop(state.origin));
+      renderTransitSteps(list);
+      list.appendChild(timelineStop(state.destination, true));
+      $('#directionsSection').classList.remove('hidden'); icons();
+      return;
+    }
     const steps = state.route.instructions.filter((step) => step.text && step.text.toLowerCase() !== 'finish');
     $('#instructionCount').textContent = steps.length ? `${steps.length} steps` : '';
-    const stop = (place, end = false) => {
-      const li = document.createElement('li'); li.className = `timeline-stop${end ? ' end' : ''}`;
-      const saved = findSavedPlace(place);
-      li.innerHTML = `<span class="timeline-node"></span><span class="timeline-place">${saved ? `<span class="saved-tag">${escapeHtml(saved.label)}</span>` : ''}${escapeHtml(place.name)}</span>`;
-      const star = document.createElement('button'); star.type = 'button'; star.className = `star-button${saved ? ' saved' : ''}`;
-      star.setAttribute('aria-label', saved ? `Edit saved place ${saved.label}` : `Save ${place.name}`);
-      star.title = saved ? 'Edit saved place' : 'Save this place';
-      star.innerHTML = '<i data-lucide="star"></i>';
-      star.addEventListener('click', () => openPlaceDialog(place, saved || null));
-      li.appendChild(star); return li;
-    };
-    list.appendChild(stop(state.origin));
+    list.appendChild(timelineStop(state.origin));
     if (!steps.length) { const li = document.createElement('li'); li.className = 'direction-item'; li.innerHTML = '<span></span><span class="direction-text">No turn-by-turn instructions came back for this route.</span><span></span>'; list.appendChild(li); }
     steps.forEach((step) => {
       const item = document.createElement('li'); item.className = 'direction-item'; item.tabIndex = 0;
@@ -160,7 +206,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
       item.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); focusStep(); } });
       list.appendChild(item);
     });
-    list.appendChild(stop(state.destination, true));
+    list.appendChild(timelineStop(state.destination, true));
     $('#directionsSection').classList.remove('hidden');
     icons();
   }
@@ -174,7 +220,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
 
   function renderComparisonLoading() {
     $('#comparisonSection').classList.remove('hidden');
-    $('#comparisonList').innerHTML = '<div class="option-skeleton"></div><div class="option-skeleton"></div><div class="option-skeleton"></div>';
+    $('#comparisonList').innerHTML = '<div class="option-skeleton"></div>'.repeat(4);
   }
 
   function renderComparison() {
@@ -189,7 +235,9 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
       button.className = `option${item.mode === state.mode ? ' selected' : ''}`; button.disabled = !item.available;
       button.setAttribute('aria-pressed', String(item.mode === state.mode));
       let meta = '';
-      if (item.available) {
+      if (item.available && item.mode === 'transit') {
+        meta = `<span class="option-meta">${[item.route?.label, fareText(item.route?.fare)].filter(Boolean).map(escapeHtml).join(', ')}</span>`;
+      } else if (item.available) {
         const fuel = item.mode === 'car' ? fuelCost(item.distance_m) : null;
         meta = `<span class="option-meta">${formatDistance(item.distance_m)}${fuel ? `, about ${peso(fuel.cost)} fuel` : ''}</span>`;
       } else {
@@ -269,6 +317,22 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     else { select.value = 'custom'; custom.hidden = false; custom.value = toLocalInput(time); }
     if (state.route) { renderSummary(); renderWeather(); }
     if (state.comparison) renderComparison();
+    refreshTransitForDeparture();
+  }
+
+  // Transit timetables depend on the departure time, so a new time asks Google again
+  // (cached on the server for 5 minutes). Other modes do not change.
+  let transitTimer;
+  function refreshTransitForDeparture() {
+    if (!state.comparison || !state.origin || !state.destination) return;
+    clearTimeout(transitTimer);
+    transitTimer = setTimeout(async () => {
+      const item = await loadTransit();
+      if (state.mode === 'transit') {
+        if (item.available) showRoute(item.route);
+        else setStatus(item.error);
+      }
+    }, 400);
   }
 
   const toLocalInput = (time) => { const d = new Date(time); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
@@ -286,7 +350,8 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
   // Fetch other routes for the current mode once per search (2 GraphHopper credits), then reuse them.
   async function loadAlternatives() {
     const mode = state.mode; const key = `${mode}:${state.origin.lat},${state.origin.lng}>${state.destination.lat},${state.destination.lng}`;
-    if (state.alternatives[mode] || state.loadingAlternatives === key) { renderAlternatives(); return; }
+    // Transit alternatives come with the transit search; the rest are fetched from GraphHopper.
+    if (mode === 'transit' || state.alternatives[mode] || state.loadingAlternatives === key) { renderAlternatives(); return; }
     state.loadingAlternatives = key; renderAlternatives();
     try {
       const result = await api('/api/alternatives', { method: 'POST', body: JSON.stringify({ origin: state.origin, destination: state.destination, mode }) });
@@ -489,6 +554,11 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     if (state.busy) return;
     setStatus(); setBusy(true);
     try {
+      if (state.mode === 'transit') {
+        const item = await loadTransit();
+        if (!item.available) throw new Error(item.error);
+        showRoute(item.route); return;
+      }
       const result = await api('/api/route', { method: 'POST', body: JSON.stringify({ origin: state.origin, destination: state.destination, mode: state.mode }) });
       state.origin = result.origin; state.destination = result.destination;
       showRoute(result.route);
@@ -496,13 +566,34 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     finally { setBusy(false); }
   }
 
+  // Transit routes for the current departure time. Returns a "Ways to get there" item and
+  // keeps the other transit routes as alternatives. Errors become an unavailable item.
+  async function loadTransit({ render = true } = {}) {
+    let item;
+    try {
+      const result = await api('/api/transit', { method: 'POST', body: JSON.stringify({ origin: state.origin, destination: state.destination, depart_at: state.departAt }) });
+      const best = result.routes[0];
+      state.alternatives.transit = result.routes;
+      item = { mode: 'transit', available: true, distance_m: best.distance_m, duration_ms: best.duration_ms, route: best };
+    } catch (error) {
+      delete state.alternatives.transit;
+      item = { mode: 'transit', available: false, error: error.message };
+    }
+    if (render && state.comparison) {
+      state.comparison = [...state.comparison.filter((entry) => entry.mode !== 'transit'), item];
+      renderComparison();
+    }
+    return item;
+  }
+
   // One request fetches every mode's route (the server asks GraphHopper for all three modes at once).
   async function compareModes() {
     if (!state.origin || !state.destination || state.comparing) return false;
     state.comparing = true; $('#compareButton').disabled = true; renderComparisonLoading();
     try {
-      const result = await api('/api/compare', { method: 'POST', body: tripBody() });
-      state.comparison = result.comparison; state.origin = result.origin; state.destination = result.destination;
+      // Transit (Google) is requested at the same time as driving, cycling and walking (GraphHopper).
+      const [result, transit] = await Promise.all([api('/api/compare', { method: 'POST', body: tripBody() }), loadTransit({ render: false })]);
+      state.comparison = [...result.comparison, transit]; state.origin = result.origin; state.destination = result.destination;
       renderComparison();
       return true;
     } catch (error) {

@@ -3,7 +3,7 @@
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
-from time import monotonic
+from time import monotonic, time
 
 from flask import Blueprint, jsonify, request
 
@@ -16,6 +16,7 @@ from services.graphhopper_service import (
     route_alternatives,
     route_for,
 )
+from services.transit_service import transit_routes
 from services.weather_service import weather_for
 
 api = Blueprint("api", __name__)
@@ -29,7 +30,7 @@ _GRAPHOPPER_CREDIT_BUDGET = 20
 def limit_graphhopper_requests():
     """Limit accidental bursts of billable geocode and route requests per client."""
     # GraphHopper charges about 2 credits for an alternative-routes request.
-    costs = {"api.geocode_endpoint": 1, "api.route_endpoint": 1, "api.compare_endpoint": 3, "api.alternatives_endpoint": 2}
+    costs = {"api.geocode_endpoint": 1, "api.route_endpoint": 1, "api.compare_endpoint": 3, "api.alternatives_endpoint": 2, "api.transit_endpoint": 1}
     cost = costs.get(request.endpoint)
     if cost is None:
         return None
@@ -147,6 +148,31 @@ def alternatives_endpoint():
 
     mode = str(body.get("mode", "car"))
     return jsonify({"mode": mode, "routes": route_alternatives(origin, destination, mode)})
+
+
+@api.post("/api/transit")
+def transit_endpoint():
+    """Public transport routes (Google Routes API), optionally for a later departure."""
+    body = request.get_json(silent=True) or {}
+    origin = require_metro_manila(clean_place(body.get("origin"), "Origin"), "Starting point")
+    destination = require_metro_manila(clean_place(body.get("destination"), "Destination"), "Destination")
+
+    if abs(origin["lat"] - destination["lat"]) < 1e-6 and abs(origin["lng"] - destination["lng"]) < 1e-6:
+        raise ServiceError("Origin and destination cannot be the same place.", 400)
+
+    depart_at = body.get("depart_at")
+    if depart_at is not None:
+        try:
+            depart_at = int(depart_at)
+        except (TypeError, ValueError):
+            raise ServiceError("Choose a valid departure time.", 400)
+        now_ms = int(time() * 1000)
+        if depart_at < now_ms - 5 * 60_000 or depart_at > now_ms + 30 * 24 * 3_600_000:
+            raise ServiceError("Choose a departure time between now and 30 days from now.", 400)
+        if depart_at <= now_ms:
+            depart_at = None  # "Now" (allowing for small clock differences).
+
+    return jsonify({"routes": transit_routes(origin, destination, depart_at), "origin": origin, "destination": destination})
 
 
 @api.get("/api/weather")

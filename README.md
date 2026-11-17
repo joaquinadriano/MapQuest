@@ -6,7 +6,8 @@ Maply turns the original GraphHopper-powered command-line route finder into a re
 
 - GraphHopper geocoding suggestions and routing with real route geometry.
 - Built for Metro Manila: place search only suggests places in Metro Manila, and routes must start and end there.
-- Car, bike, and foot routing profiles. The app reports unavailable profiles without substituting another mode.
+- Car, bike, and foot routing profiles, plus public transport. The app reports unavailable profiles without substituting another mode.
+- Public transport (Google Routes API): trains (LRT-1, LRT-2, MRT-3, PNR) and buses with line colours, where to board and get off, number of stops, timetable times, transfers, walking distance and fare. Transit follows the chosen departure time and offers up to three routes.
 - Interactive Mapbox GL JS map with Mapbox Standard and satellite styles, route line, start/end markers, current-location control, and route bounds.
 - Route distance, estimated duration, and turn-by-turn instructions.
 - Mode comparison with per-profile error reporting.
@@ -34,6 +35,7 @@ You will need these API credentials:
 - A GraphHopper API key that has Geocoding and Routing access. Available travel profiles depend on the account.
 - A Mapbox **public** access token (starts with `pk.`) that can load styles and tiles. Restrict its allowed URLs to localhost for development.
 - An OpenWeatherMap API key (the free plan is enough) for weather planning. Without it, everything else works and the Weather card explains how to add it. New keys can take up to 2 hours to activate.
+- A Google Maps Platform API key with the **Routes API** enabled (billing must be turned on in Google Cloud; Google's monthly free usage covers light use) for public transport. Without it, Transit shows as unavailable and everything else works. Restrict the key to the Routes API; it is only used by the server.
 
 The credentials enable real place search, routes, and map tiles; the application does not include mock route data.
 
@@ -131,7 +133,7 @@ In your browser, open [http://127.0.0.1:5000](http://127.0.0.1:5000). This addre
 - `POST /api/route` calculates the selected profile route. Returns meter distance, millisecond duration, coordinates, turn-by-turn instructions, and enriched metric/imperial summaries with fuel estimates.
 - `POST /api/compare` queries car, bike, and foot profiles concurrently using Python thread workers, returning profile availability and metrics.
 
-GraphHopper requests are made by the Flask server so the GraphHopper key is not sent to the browser. Mapbox GL JS loads Mapbox Standard in the browser using the public Mapbox token. Requests have connect/read timeouts, input validation, and a per-client in-memory limit of 20 weighted GraphHopper requests per minute (mode comparison counts as three, alternative routes as two).
+GraphHopper requests are made by the Flask server so the GraphHopper key is not sent to the browser. Mapbox GL JS loads Mapbox Standard in the browser using the public Mapbox token. Requests have connect/read timeouts, input validation, and a per-client in-memory limit of 20 weighted GraphHopper requests per minute (mode comparison counts as three, alternative routes as two, transit as one). Transit answers are cached for 5 minutes and weather for 10 minutes.
 
 ## Testing
 
