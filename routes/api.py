@@ -30,8 +30,9 @@ _GRAPHOPPER_CREDIT_BUDGET = 20
 def limit_graphhopper_requests():
     """Limit accidental bursts of billable geocode and route requests per client."""
     # GraphHopper charges about 2 credits for an alternative-routes request. A commute search
-    # (OpenAI with web search) is the most expensive call, so it counts as 5.
-    costs = {"api.geocode_endpoint": 1, "api.route_endpoint": 1, "api.compare_endpoint": 3, "api.alternatives_endpoint": 2, "api.commute_endpoint": 5}
+    # counts as 2: most are answered from the day-long cache (for example when only the
+    # departure time changes), and COMMUTE_DAILY_LIMIT caps the paid OpenAI searches.
+    costs = {"api.geocode_endpoint": 1, "api.route_endpoint": 1, "api.compare_endpoint": 3, "api.alternatives_endpoint": 2, "api.commute_endpoint": 2}
     cost = costs.get(request.endpoint)
     if cost is None:
         return None

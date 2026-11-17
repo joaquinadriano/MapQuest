@@ -163,7 +163,8 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
 
   const fareText = (fare) => (fare ? `${fare.approximate ? 'about ' : ''}₱${Number(fare.amount).toLocaleString('en-PH', { maximumFractionDigits: 2 })} fare` : '');
   // The built-in rail planner (used without a Google key) gives estimates for trains only.
-  const transitNotes = (route) => [route.notice ? `<p class="transit-note warn"><i data-lucide="triangle-alert"></i>${escapeHtml(route.notice)}</p>` : '', route.source === 'rail-estimate' ? '<p class="transit-note"><i data-lucide="info"></i>LRT-1, LRT-2 and MRT-3 only (no jeepneys or buses). Times and fares are estimates; check the operator before you go.</p>' : '',
+  // Rail-planner notices are warnings (e.g. trains not running); AI notes are general tips.
+  const transitNotes = (route) => [route.notice ? `<p class="transit-note${route.source === 'openai' ? '' : ' warn'}"><i data-lucide="${route.source === 'openai' ? 'lightbulb' : 'triangle-alert'}"></i>${escapeHtml(route.notice)}</p>` : '', route.source === 'rail-estimate' ? '<p class="transit-note"><i data-lucide="info"></i>LRT-1, LRT-2 and MRT-3 only (no jeepneys or buses). Times and fares are estimates; check the operator before you go.</p>' : '',
     route.source === 'openai' ? `<p class="transit-note"><i data-lucide="sparkles"></i>Suggested by AI from web sources. Check jeepney and bus signboards and ask the driver or conductor; routes and fares can change.</p>${sourceLinks(route)}` : ''].join('');
   const sourceLinks = (route) => (route.sources?.length ? `<p class="source-links">Sources: ${route.sources.map((source) => { let host = ''; try { host = new URL(source.url).hostname.replace(/^www\./, ''); } catch { return ''; } return `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(host)}</a>`; }).filter(Boolean).join(', ')}</p>` : '');
   const transitSummary = (route) => [fareText(route.fare), route.transfers ? `${route.transfers} transfer${route.transfers === 1 ? '' : 's'}` : 'No transfers', `${formatStepDistance(route.walk_m || 0)} walking`].filter(Boolean).join(', ');
@@ -326,6 +327,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     else { select.value = 'custom'; custom.hidden = false; custom.value = toLocalInput(time); }
     if (state.route) { renderSummary(); renderWeather(); }
     if (state.comparison) renderComparison();
+    updateTripBar();
     refreshCommuteForDeparture();
   }
 
@@ -549,9 +551,35 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     recordTrip({ origin: state.origin, destination: state.destination, mode: state.mode, route });
     renderSaved();
     setStatus('Route found.', 'success');
+    if (!state.editingTrip) setCompact(true); // Don't fold the form while the user is changing the trip.
     // On phones, slide the panel away so the route is visible on the map.
     $('#expandSheet span').textContent = 'Show route details';
     if (isMobile()) $('#sidebar').classList.add('collapsed');
+  }
+
+  /* ---------- Compact header ---------- */
+
+  // After a route is shown, the green search form folds into a one-line trip bar
+  // ("Pasig to Cubao, leave now, Edit") so the route details get the space.
+  const shortName = (place) => String(place?.name || '').split(',')[0].trim() || 'Selected place';
+
+  function updateTripBar() {
+    if (!state.origin || !state.destination) return;
+    $('#tripBarFrom').textContent = shortName(state.origin);
+    $('#tripBarTo').textContent = shortName(state.destination);
+    $('#tripBarWhen').textContent = state.departAt ? `Leave ${whenText(state.departAt)}` : 'Leave now';
+    $('#tripBar').setAttribute('aria-label', `Change trip from ${state.origin.name} to ${state.destination.name}, ${$('#tripBarWhen').textContent.toLowerCase()}`);
+  }
+
+  function setCompact(compact) {
+    const header = $('.search-header');
+    const wasCompact = header.classList.contains('compact');
+    header.classList.toggle('compact', compact);
+    $('#tripBar').hidden = !compact;
+    // While editing an existing route, offer a way back without searching again.
+    $('#backToRoute').hidden = compact || !state.route;
+    if (compact) updateTripBar();
+    if (!compact && wasCompact) $('#destinationInput').focus({ preventScroll: true });
   }
 
   const cachedRoute = (mode) => state.comparison?.find((item) => item.mode === mode && item.available && item.route)?.route;
@@ -635,7 +663,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     if (!state.origin || !state.destination) { setStatus('Pick a start and destination from the suggestions.'); return; }
     setStatus(); setBusy(true);
     state.comparison = null; state.alternatives = {}; state.alternativesError = null; state.loadingAlternatives = null;
-    state.commuteItem = null; state.waitingForCommute = state.mode === 'commute';
+    state.commuteItem = null; state.waitingForCommute = state.mode === 'commute'; state.editingTrip = false;
     loadCommute();
     try {
       if (!(await compareModes())) return;
@@ -718,6 +746,8 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     const time = new Date(event.target.value).getTime();
     if (Number.isFinite(time)) setDeparture(time < Date.now() ? null : time);
   });
+  $('#tripBar').addEventListener('click', () => { state.editingTrip = true; setCompact(false); });
+  $('#backToRoute').addEventListener('click', () => { state.editingTrip = false; setCompact(true); });
   $('#routeForm').addEventListener('submit', (event) => { event.preventDefault(); findRoutes(); });
   $('#compareButton').addEventListener('click', () => { loadCommute(); compareModes(); });
   $('#swapButton').addEventListener('click', () => {
