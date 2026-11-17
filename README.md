@@ -37,8 +37,8 @@ The credentials enable real place search, routes, and map tiles; the application
 In PowerShell, Terminal, or another shell, run:
 
 ```sh
-git clone https://github.com/joaquinadriano/MapQuest.git
-cd MapQuest
+git clone https://github.com/joaquinadriano/Maply.git
+cd Maply
 ```
 
 Cloning downloads the source code. Changing into the project directory ensures the following commands find `requirements.txt`, `.env.example`, and `app.py`.
