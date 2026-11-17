@@ -7,6 +7,7 @@ from time import monotonic, time
 
 from flask import Blueprint, jsonify, request
 
+from services.commute_service import commute_routes
 from services.graphhopper_service import (
     PROFILES,
     ServiceError,
@@ -16,7 +17,6 @@ from services.graphhopper_service import (
     route_alternatives,
     route_for,
 )
-from services.transit_service import transit_routes
 from services.weather_service import weather_for
 
 api = Blueprint("api", __name__)
@@ -29,8 +29,9 @@ _GRAPHOPPER_CREDIT_BUDGET = 20
 @api.before_request
 def limit_graphhopper_requests():
     """Limit accidental bursts of billable geocode and route requests per client."""
-    # GraphHopper charges about 2 credits for an alternative-routes request.
-    costs = {"api.geocode_endpoint": 1, "api.route_endpoint": 1, "api.compare_endpoint": 3, "api.alternatives_endpoint": 2, "api.transit_endpoint": 1}
+    # GraphHopper charges about 2 credits for an alternative-routes request. A commute search
+    # (OpenAI with web search) is the most expensive call, so it counts as 5.
+    costs = {"api.geocode_endpoint": 1, "api.route_endpoint": 1, "api.compare_endpoint": 3, "api.alternatives_endpoint": 2, "api.commute_endpoint": 5}
     cost = costs.get(request.endpoint)
     if cost is None:
         return None
@@ -150,9 +151,9 @@ def alternatives_endpoint():
     return jsonify({"mode": mode, "routes": route_alternatives(origin, destination, mode)})
 
 
-@api.post("/api/transit")
-def transit_endpoint():
-    """Public transport routes (Google Routes API), optionally for a later departure."""
+@api.post("/api/commute")
+def commute_endpoint():
+    """Commute options by jeepney, bus, UV Express and LRT/MRT, found on the web by OpenAI."""
     body = request.get_json(silent=True) or {}
     origin = require_metro_manila(clean_place(body.get("origin"), "Origin"), "Starting point")
     destination = require_metro_manila(clean_place(body.get("destination"), "Destination"), "Destination")
@@ -172,7 +173,7 @@ def transit_endpoint():
         if depart_at <= now_ms:
             depart_at = None  # "Now" (allowing for small clock differences).
 
-    return jsonify({"routes": transit_routes(origin, destination, depart_at), "origin": origin, "destination": destination})
+    return jsonify({"routes": commute_routes(origin, destination, depart_at), "origin": origin, "destination": destination})
 
 
 @api.get("/api/weather")

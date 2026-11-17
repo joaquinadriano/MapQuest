@@ -11,8 +11,11 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     localStorage.removeItem(`mapquest-${key}`);
   });
   const state = { mode: localStorage.getItem('maply-mode') || 'car', unit: localStorage.getItem('maply-unit') || 'metric', origin: null, destination: null, route: null, comparison: null, map: null, mapReady: false, pendingRoute: null, markers: [], userMarker: null, satellite: false, busy: false, comparing: false, alternatives: {}, loadingAlternatives: null, departAt: null, weather: null };
-  const modes = { car: { name: 'Drive', verb: 'Driving', icon: 'car-front' }, bike: { name: 'Cycle', verb: 'Cycling', icon: 'bike' }, foot: { name: 'Walk', verb: 'Walking', icon: 'footprints' }, transit: { name: 'Transit', verb: 'By transit', icon: 'train-front' } };
-  const VEHICLE_ICONS = { train: 'train-front', bus: 'bus', jeepney: 'bus-front', ferry: 'ship' };
+  const modes = { car: { name: 'Drive', verb: 'Driving', icon: 'car-front' }, bike: { name: 'Cycle', verb: 'Cycling', icon: 'bike' }, foot: { name: 'Walk', verb: 'Walking', icon: 'footprints' }, commute: { name: 'Commute', verb: 'Commuting', icon: 'bus' } };
+  // Trips saved before Commute replaced Transit still show the right icon.
+  Object.defineProperty(modes, 'transit', { value: modes.commute, enumerable: false });
+  const VEHICLE_ICONS = { train: 'train-front', bus: 'bus', jeepney: 'bus-front', van: 'car-front', tricycle: 'bike', ferry: 'ship' };
+  if (state.mode === 'transit') state.mode = 'commute';
   if (!modes[state.mode]) state.mode = 'car';
   const GREEN = '#37ab2f';
   const ALTERNATIVE_GREY = '#8f978d';
@@ -160,7 +163,9 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
 
   const fareText = (fare) => (fare ? `${fare.approximate ? 'about ' : ''}₱${Number(fare.amount).toLocaleString('en-PH', { maximumFractionDigits: 2 })} fare` : '');
   // The built-in rail planner (used without a Google key) gives estimates for trains only.
-  const transitNotes = (route) => [route.notice ? `<p class="transit-note warn"><i data-lucide="triangle-alert"></i>${escapeHtml(route.notice)}</p>` : '', route.source === 'rail-estimate' ? '<p class="transit-note"><i data-lucide="info"></i>LRT-1, LRT-2 and MRT-3 only (no jeepneys or buses). Times and fares are estimates; check the operator before you go.</p>' : ''].join('');
+  const transitNotes = (route) => [route.notice ? `<p class="transit-note warn"><i data-lucide="triangle-alert"></i>${escapeHtml(route.notice)}</p>` : '', route.source === 'rail-estimate' ? '<p class="transit-note"><i data-lucide="info"></i>LRT-1, LRT-2 and MRT-3 only (no jeepneys or buses). Times and fares are estimates; check the operator before you go.</p>' : '',
+    route.source === 'openai' ? `<p class="transit-note"><i data-lucide="sparkles"></i>Suggested by AI from web sources. Check jeepney and bus signboards and ask the driver or conductor; routes and fares can change.</p>${sourceLinks(route)}` : ''].join('');
+  const sourceLinks = (route) => (route.sources?.length ? `<p class="source-links">Sources: ${route.sources.map((source) => { let host = ''; try { host = new URL(source.url).hostname.replace(/^www\./, ''); } catch { return ''; } return `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(host)}</a>`; }).filter(Boolean).join(', ')}</p>` : '');
   const transitSummary = (route) => [fareText(route.fare), route.transfers ? `${route.transfers} transfer${route.transfers === 1 ? '' : 's'}` : 'No transfers', `${formatStepDistance(route.walk_m || 0)} walking`].filter(Boolean).join(', ');
   // Coloured chips for each ride, e.g. [MRT-3] > [LRT-1].
   const lineChips = (route) => route.legs.filter((leg) => leg.type === 'transit').map((leg) => `<span class="line-chip" style="${leg.color ? `background:${escapeHtml(leg.color)};color:${escapeHtml(leg.text_color || '#fff')}` : ''}"><i data-lucide="${VEHICLE_ICONS[leg.vehicle] || 'bus'}"></i>${escapeHtml(leg.line)}</span>`).join('<i data-lucide="chevron-right" class="chip-sep"></i>');
@@ -177,7 +182,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
       } else {
         const style = leg.color ? ` style="background:${escapeHtml(leg.color)};color:${escapeHtml(leg.text_color || '#fff')}"` : '';
         const times = leg.depart_time ? `${clock(leg.depart_time)} to ${clock(leg.arrive_time)}` : `${minutes} min`;
-        item.innerHTML = `<span class="turn-icon ride"${style}><i data-lucide="${VEHICLE_ICONS[leg.vehicle] || 'bus'}"></i></span><span class="direction-text"><strong>${escapeHtml(leg.vehicle_name || 'Ride')} ${escapeHtml(leg.line)}</strong>${leg.headsign ? ` toward ${escapeHtml(leg.headsign)}` : ''}<small>Board at ${escapeHtml(leg.from_stop)}, get off at ${escapeHtml(leg.to_stop)}${leg.stops ? ` (${leg.stops} stop${leg.stops === 1 ? '' : 's'})` : ''}</small><small>${times}</small></span><span class="direction-distance">${minutes} min</span>`;
+        item.innerHTML = `<span class="turn-icon ride"${style}><i data-lucide="${VEHICLE_ICONS[leg.vehicle] || 'bus'}"></i></span><span class="direction-text"><strong>${escapeHtml(leg.vehicle_name || 'Ride')} ${escapeHtml(leg.line)}</strong>${leg.headsign ? ` toward ${escapeHtml(leg.headsign)}` : ''}<small>${leg.from_stop ? `Board at ${escapeHtml(leg.from_stop)}, get off at ${escapeHtml(leg.to_stop)}` : ''}${leg.stops ? ` (${leg.stops} stop${leg.stops === 1 ? '' : 's'})` : ''}</small><small>${times}${leg.fare ? `, about ₱${Math.round(leg.fare)}` : ''}</small>${leg.note ? `<small class="leg-note">${escapeHtml(leg.note)}</small>` : ''}</span><span class="direction-distance">${minutes} min</span>`;
       }
       const focusLeg = () => { const point = leg.geometry[0]; if (point && state.map) { state.map.flyTo({ center: [point[1], point[0]], zoom: Math.max(state.map.getZoom(), 15) }); if (isMobile()) $('#sidebar').classList.add('collapsed'); } };
       item.addEventListener('click', focusLeg);
@@ -237,7 +242,9 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
       button.className = `option${item.mode === state.mode ? ' selected' : ''}`; button.disabled = !item.available;
       button.setAttribute('aria-pressed', String(item.mode === state.mode));
       let meta = '';
-      if (item.available && item.mode === 'transit') {
+      if (item.loading) {
+        meta = '<span class="option-meta searching"><span class="mini-spinner"></span>Searching the web for jeep, bus and train routes (about 30 seconds)</span>';
+      } else if (item.available && item.mode === 'commute') {
         meta = `<span class="option-meta">${[item.route?.label, fareText(item.route?.fare)].filter(Boolean).map(escapeHtml).join(', ')}</span>`;
       } else if (item.available) {
         const fuel = item.mode === 'car' ? fuelCost(item.distance_m) : null;
@@ -247,7 +254,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
       }
       const time = item.available ? durationParts(item.duration_ms) : null;
       button.innerHTML = `<span class="option-icon"><i data-lucide="${mode.icon}"></i></span><span class="option-body"><span class="option-name">${mode.name}${item.mode === fastest ? '<span class="option-tag">Fastest</span>' : ''}${item.available ? rainTag(item.mode) : ''}</span>${meta}</span>${time ? `<span class="option-time"><strong>${time.value}</strong><small>${time.unit}</small></span>` : ''}`;
-      button.addEventListener('click', () => { if (item.mode === state.mode && state.route) return; state.mode = item.mode; localStorage.setItem('maply-mode', item.mode); markSelectedOption(); runRoute(); });
+      button.addEventListener('click', () => { state.waitingForCommute = false; if (item.mode === state.mode && state.route) return; state.mode = item.mode; localStorage.setItem('maply-mode', item.mode); markSelectedOption(); runRoute(); });
       list.appendChild(button);
     });
     icons();
@@ -319,18 +326,18 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     else { select.value = 'custom'; custom.hidden = false; custom.value = toLocalInput(time); }
     if (state.route) { renderSummary(); renderWeather(); }
     if (state.comparison) renderComparison();
-    refreshTransitForDeparture();
+    refreshCommuteForDeparture();
   }
 
-  // Transit timetables depend on the departure time, so a new time asks Google again
-  // (cached on the server for 5 minutes). Other modes do not change.
-  let transitTimer;
-  function refreshTransitForDeparture() {
+  // Commute options depend on rush hour, so a new departure time asks again (the server
+  // caches rush-hour and off-peak answers separately). Other modes do not change.
+  let commuteTimer;
+  function refreshCommuteForDeparture() {
     if (!state.comparison || !state.origin || !state.destination) return;
-    clearTimeout(transitTimer);
-    transitTimer = setTimeout(async () => {
-      const item = await loadTransit();
-      if (state.mode === 'transit') {
+    clearTimeout(commuteTimer);
+    commuteTimer = setTimeout(async () => {
+      const item = await loadCommute();
+      if (state.mode === 'commute') {
         if (item.available) showRoute(item.route);
         else setStatus(item.error);
       }
@@ -352,8 +359,8 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
   // Fetch other routes for the current mode once per search (2 GraphHopper credits), then reuse them.
   async function loadAlternatives() {
     const mode = state.mode; const key = `${mode}:${state.origin.lat},${state.origin.lng}>${state.destination.lat},${state.destination.lng}`;
-    // Transit alternatives come with the transit search; the rest are fetched from GraphHopper.
-    if (mode === 'transit' || state.alternatives[mode] || state.loadingAlternatives === key) { renderAlternatives(); return; }
+    // Commute alternatives come with the commute search; the rest are fetched from GraphHopper.
+    if (mode === 'commute' || state.alternatives[mode] || state.loadingAlternatives === key) { renderAlternatives(); return; }
     state.loadingAlternatives = key; renderAlternatives();
     try {
       const result = await api('/api/alternatives', { method: 'POST', body: JSON.stringify({ origin: state.origin, destination: state.destination, mode }) });
@@ -489,7 +496,8 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     label.addEventListener('click', () => {
       $('#historyDialog').close();
       setPlace('origin', trip.origin); setPlace('destination', trip.destination);
-      if (modes[trip.mode]) state.mode = trip.mode;
+      const mode = trip.mode === 'transit' ? 'commute' : trip.mode; // Transit became Commute.
+      if (modes[mode]) state.mode = mode;
       findRoutes();
     });
     const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'delete-saved'; remove.setAttribute('aria-label', `Remove trip to ${trip.destination.name}`); remove.innerHTML = '<i data-lucide="x"></i>';
@@ -556,8 +564,8 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     if (state.busy) return;
     setStatus(); setBusy(true);
     try {
-      if (state.mode === 'transit') {
-        const item = await loadTransit();
+      if (state.mode === 'commute') {
+        const item = state.commuteItem?.loading ? await state.commutePromise : await loadCommute();
         if (!item.available) throw new Error(item.error);
         showRoute(item.route); return;
       }
@@ -568,24 +576,39 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     finally { setBusy(false); }
   }
 
-  // Transit routes for the current departure time. Returns a "Ways to get there" item and
-  // keeps the other transit routes as alternatives. Errors become an unavailable item.
-  async function loadTransit({ render = true } = {}) {
-    let item;
-    try {
-      const result = await api('/api/transit', { method: 'POST', body: JSON.stringify({ origin: state.origin, destination: state.destination, depart_at: state.departAt }) });
-      const best = result.routes[0];
-      state.alternatives.transit = result.routes;
-      item = { mode: 'transit', available: true, distance_m: best.distance_m, duration_ms: best.duration_ms, route: best };
-    } catch (error) {
-      delete state.alternatives.transit;
-      item = { mode: 'transit', available: false, error: error.message };
-    }
-    if (render && state.comparison) {
-      state.comparison = [...state.comparison.filter((entry) => entry.mode !== 'transit'), item];
-      renderComparison();
-    }
-    return item;
+  // Commute routes (jeepney, bus, UV Express, LRT/MRT) found on the web by OpenAI.
+  // This can take about 30 seconds, so the other modes are shown first and this row
+  // fills in when ready. Errors become an unavailable item.
+  let commuteSearch = 0;
+  function loadCommute() {
+    const search = ++commuteSearch;
+    state.commuteItem = { mode: 'commute', loading: true };
+    placeCommuteItem();
+    state.commutePromise = (async () => {
+      let item;
+      try {
+        const result = await api('/api/commute', { method: 'POST', body: JSON.stringify({ origin: state.origin, destination: state.destination, depart_at: state.departAt }) });
+        const best = result.routes[0];
+        item = { mode: 'commute', available: true, distance_m: best.distance_m, duration_ms: best.duration_ms, route: best, routes: result.routes };
+      } catch (error) {
+        item = { mode: 'commute', available: false, error: error.message };
+      }
+      if (search !== commuteSearch) return item; // A newer search replaced this one.
+      state.commuteItem = item;
+      if (item.available) state.alternatives.commute = item.routes; else delete state.alternatives.commute;
+      placeCommuteItem();
+      // The user's preferred mode is Commute and they haven't picked another option: show it now.
+      if (item.available && state.waitingForCommute) { state.waitingForCommute = false; state.mode = 'commute'; markSelectedOption(); showRoute(item.route); }
+      else if (state.waitingForCommute) { state.waitingForCommute = false; }
+      return item;
+    })();
+    return state.commutePromise;
+  }
+
+  function placeCommuteItem() {
+    if (!state.comparison) return;
+    state.comparison = [...state.comparison.filter((entry) => entry.mode !== 'commute'), state.commuteItem];
+    renderComparison();
   }
 
   // One request fetches every mode's route (the server asks GraphHopper for all three modes at once).
@@ -593,9 +616,8 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     if (!state.origin || !state.destination || state.comparing) return false;
     state.comparing = true; $('#compareButton').disabled = true; renderComparisonLoading();
     try {
-      // Transit (Google) is requested at the same time as driving, cycling and walking (GraphHopper).
-      const [result, transit] = await Promise.all([api('/api/compare', { method: 'POST', body: tripBody() }), loadTransit({ render: false })]);
-      state.comparison = [...result.comparison, transit]; state.origin = result.origin; state.destination = result.destination;
+      const result = await api('/api/compare', { method: 'POST', body: tripBody() });
+      state.comparison = [...result.comparison, state.commuteItem || { mode: 'commute', loading: true }]; state.origin = result.origin; state.destination = result.destination;
       renderComparison();
       return true;
     } catch (error) {
@@ -613,11 +635,14 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     if (!state.origin || !state.destination) { setStatus('Pick a start and destination from the suggestions.'); return; }
     setStatus(); setBusy(true);
     state.comparison = null; state.alternatives = {}; state.alternativesError = null; state.loadingAlternatives = null;
+    state.commuteItem = null; state.waitingForCommute = state.mode === 'commute';
+    loadCommute();
     try {
       if (!(await compareModes())) return;
+      if (state.mode === 'commute' && !cachedRoute('commute')) setStatus('Searching for jeep, bus and train routes. Showing the fastest other way for now.');
       if (!cachedRoute(state.mode)) {
         const fastest = state.comparison.filter((item) => item.available).sort((a, b) => a.duration_ms - b.duration_ms)[0];
-        if (!fastest) { setStatus(state.comparison[0]?.error || 'No route found between these places.'); return; }
+        if (!fastest) { if (!state.waitingForCommute) setStatus(state.comparison[0]?.error || 'No route found between these places.'); return; }
         state.mode = fastest.mode;
       }
       markSelectedOption();
@@ -694,7 +719,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     if (Number.isFinite(time)) setDeparture(time < Date.now() ? null : time);
   });
   $('#routeForm').addEventListener('submit', (event) => { event.preventDefault(); findRoutes(); });
-  $('#compareButton').addEventListener('click', compareModes);
+  $('#compareButton').addEventListener('click', () => { loadCommute(); compareModes(); });
   $('#swapButton').addEventListener('click', () => {
     const origin = state.origin; const originText = $('#originInput').value;
     state.origin = state.destination; state.destination = origin;

@@ -183,7 +183,7 @@ def _itinerary(origin: dict, destination: dict, board: tuple, alight: tuple, pat
 
     ride_legs = [leg for leg in legs if leg["type"] == "transit"]
     return {
-        "mode": "transit",
+        "mode": "commute",
         "source": "rail-estimate",
         "distance_m": sum(leg["distance_m"] for leg in legs),
         "duration_ms": clock - depart_ms,
@@ -221,7 +221,8 @@ def rail_routes(origin: dict, destination: dict, depart_at_ms: int | None = None
             if board == alight:
                 continue
             found = rail_path(board, alight, network)
-            if not found:
+            # Skip paths with no train ride, e.g. only the walk between Doroteo Jose and Recto.
+            if not found or not _rides(found[1], network):
                 continue
             route = _itinerary(origin, destination, board, alight, found[1], network, depart_ms)
             if route["legs"][0]["type"] == "walk" and len([leg for leg in route["legs"] if leg["type"] == "transit"]) == 0:

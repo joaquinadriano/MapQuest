@@ -6,6 +6,7 @@ connection, and consume no API credits. Run with:
     python -m unittest discover -s tests -v
 """
 
+import json
 import time
 import unittest
 from unittest.mock import MagicMock, patch
@@ -16,7 +17,7 @@ import app as maply
 from routes import api as routes_api
 from services import graphhopper_service as gh
 from services.graphhopper_service import ServiceError
-from services import transit_service as ts
+from services import commute_service as cs
 from services import weather_service as ws
 
 
@@ -603,121 +604,150 @@ class WeatherNotConfiguredTests(unittest.TestCase):
         self.assertIn("OPENWEATHER_API_KEY", response.json["error"])
 
 
-def google_step(mode, seconds, metres, polyline="_p~iF~ps|U", **transit):
-    step = {"travelMode": mode, "staticDuration": f"{seconds}s", "distanceMeters": metres, "polyline": {"encodedPolyline": polyline}}
-    if mode == "WALK":
-        step["navigationInstruction"] = {"instructions": "Head north"}
-    if transit:
-        step["transitDetails"] = transit
-    return step
+def ai_leg(mode, line, start, end, start_point=None, end_point=None, minutes=10, fare=13, note="Look for the signboard"):
+    """One leg as the OpenAI commute answer returns it."""
+    start_point, end_point = start_point or (None, None), end_point or (None, None)
+    return {"mode": mode, "line": line, "from_stop": start, "to_stop": end,
+            "from_lat": start_point[0], "from_lng": start_point[1], "to_lat": end_point[0], "to_lng": end_point[1],
+            "minutes": minutes, "fare_php": fare, "instructions": note}
 
 
-def google_ride(line, vehicle="SUBWAY", color="#ffd200", start="Ayala", end="North Avenue", stops=6):
-    return {
-        "stopDetails": {"departureStop": {"name": start}, "arrivalStop": {"name": end},
-                        "departureTime": "2026-11-18T00:10:00Z", "arrivalTime": "2026-11-18T00:30:00Z"},
-        "headsign": end, "stopCount": stops,
-        "transitLine": {"name": f"Line {line}", "nameShort": line, "color": color, "textColor": "#000000",
-                        "vehicle": {"type": vehicle, "name": {"text": "Train" if vehicle == "SUBWAY" else "Bus"}}},
-    }
+def openai_answer(options, sources=None):
+    """A Responses API reply whose text is the commute plan JSON."""
+    plan = {"options": options, "sources": sources if sources is not None else [{"title": "Commute guide", "url": "https://example.ph/guide"}]}
+    return {"output": [{"type": "web_search_call"}, {"type": "message", "content": [{"type": "output_text", "text": json.dumps(plan)}]}]}
 
 
-def google_route(minutes, rides, fare=None):
-    steps = [google_step("WALK", 120, 150), google_step("WALK", 60, 80)]
-    for line, vehicle in rides:
-        steps += [google_step("TRANSIT", 1200, 9000, **google_ride(line, vehicle)), google_step("WALK", 180, 200)]
-    route = {"distanceMeters": 9500, "duration": f"{minutes * 60}s", "polyline": {"encodedPolyline": "_p~iF~ps|U_ulLnnqC"}, "legs": [{"steps": steps}]}
-    if fare:
-        route["travelAdvisory"] = {"transitFare": {"currencyCode": "PHP", "units": str(fare[0]), "nanos": fare[1]}}
-    return route
+UST = {"name": "UST, Manila", "lat": 14.6096, "lng": 120.9894}
+QUIAPO_CHURCH = {"name": "Quiapo Church", "lat": 14.5988, "lng": 120.9838}
+INTRAMUROS = {"name": "Intramuros", "lat": 14.5895, "lng": 120.9747}
+MEGAMALL = {"name": "SM Megamall", "lat": 14.5849, "lng": 121.0566}
+NOW = 1_800_000_000_000  # a Friday, 4 AM in Manila (off-peak)
 
 
-# Public transport: Google Routes API with travel mode TRANSIT.
-@patch.object(ts, "GOOGLE_KEY", "test-key")
-class TransitServiceTests(unittest.TestCase):
-    origin = {"lat": 14.5547, "lng": 121.0244}
-    destination = {"lat": 14.6565, "lng": 121.0322}
-
+# Commute mode: OpenAI web search answers, checked and corrected by Maply.
+@patch.object(cs, "OPENAI_KEY", "test-key")
+class CommuteServiceTests(unittest.TestCase):
     def setUp(self):
-        ts.clear_cache()
+        cs.clear_cache()
 
-    def test_decodes_google_polylines(self):
-        # Example from Google's polyline documentation.
-        self.assertEqual(ts.decode_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@"), [[38.5, -120.2], [40.7, -120.95], [43.252, -126.453]])
-        self.assertEqual(ts.decode_polyline(""), [])
+    @patch.object(cs, "session")
+    def test_jeepney_trip_with_walks_added_and_times(self, session):
+        session.post.return_value = fake_response(payload=openai_answer([{
+            "summary": "Jeep along Espana", "total_minutes": 15, "notes": "Common route.",
+            "legs": [ai_leg("jeepney", "Quiapo (Barbosa) jeep", "Espana Blvd near UST", "Quezon Blvd, Quiapo",
+                            (14.6085, 120.9890), (14.5995, 120.9840), minutes=13, fare=13)],
+        }]))
+        route = cs.commute_routes(UST, QUIAPO_CHURCH, now_ms=NOW)[0]
+        self.assertEqual((route["mode"], route["source"], route["label"]), ("commute", "openai", "Jeepney"))
+        self.assertEqual([leg["type"] for leg in route["legs"]], ["walk", "transit", "walk"])
+        jeep = route["legs"][1]
+        self.assertEqual((jeep["vehicle"], jeep["vehicle_name"], jeep["note"]), ("jeepney", "Jeepney", "Look for the signboard"))
+        self.assertEqual(jeep["depart_time"], NOW + route["legs"][0]["duration_ms"])
+        self.assertEqual(route["duration_ms"], sum(leg["duration_ms"] for leg in route["legs"]))
+        self.assertEqual(route["fare"], {"amount": 13, "currency": "PHP", "approximate": True})
+        self.assertEqual(route["sources"], [{"title": "Commute guide", "url": "https://example.ph/guide"}])
+        self.assertEqual(route["notice"], "Common route.")
 
-    @patch.object(ts, "session")
-    def test_parses_rides_walks_fare_and_times(self, session):
-        session.post.return_value = fake_response(payload={"routes": [google_route(35, [("MRT-3", "SUBWAY")], fare=(28, 500_000_000))]})
-        route = ts.transit_routes(self.origin, self.destination)[0]
-        self.assertEqual((route["mode"], route["duration_ms"], route["label"]), ("transit", 35 * 60000, "MRT-3"))
-        self.assertEqual(route["fare"], {"amount": 28.5, "currency": "PHP"})
-        self.assertEqual([leg["type"] for leg in route["legs"]], ["walk", "transit", "walk"], "the two opening walk steps become one leg")
-        self.assertEqual(route["legs"][0]["distance_m"], 230)
-        ride = route["legs"][1]
-        self.assertEqual((ride["vehicle"], ride["line"], ride["from_stop"], ride["to_stop"], ride["stops"]), ("train", "MRT-3", "Ayala", "North Avenue", 6))
-        self.assertEqual(ride["depart_time"], 1_794_960_600_000)
-        self.assertEqual((route["transfers"], route["walk_m"]), (0, 430))
-        self.assertEqual(route["geometry"][0], [38.5, -120.2])
+    @patch.object(cs, "session")
+    def test_train_legs_use_real_station_data_not_the_ai(self, session):
+        # The AI gets the direction, positions and fares wrong; Maply's rail data fixes them.
+        session.post.return_value = fake_response(payload=openai_answer([{
+            "summary": "LRT-1 then MRT-3", "total_minutes": 50, "notes": "",
+            "legs": [ai_leg("lrt", "LRT-1 southbound", "Central Station", "EDSA Station", (1, 1), (2, 2), fare=99),
+                     ai_leg("mrt", "MRT-3 southbound", "MRT-3 Taft Avenue Station", "Ortigas Station", fare=99)],
+        }]))
+        route = cs.commute_routes(INTRAMUROS, MEGAMALL, now_ms=NOW)[0]
+        rides = [leg for leg in route["legs"] if leg["type"] == "transit"]
+        self.assertEqual([(leg["line"], leg["from_stop"], leg["to_stop"]) for leg in rides],
+                         [("LRT-1", "Central Terminal", "EDSA"), ("MRT-3", "Taft Avenue", "Ortigas")])
+        self.assertEqual(rides[1]["headsign"], "North Avenue", "Taft Avenue to Ortigas is northbound")
+        self.assertLessEqual(rides[1]["fare"], 28)
+        self.assertEqual(route["label"], "LRT-1 + MRT-3")
+        self.assertEqual(route["transfers"], 1)
+        self.assertEqual(route["legs"][2]["type"], "walk", "walk between EDSA and Taft Avenue")
 
-    @patch.object(ts, "session")
-    def test_transfers_label_and_fastest_first(self, session):
-        session.post.return_value = fake_response(payload={"routes": [
-            google_route(50, [("MRT-3", "SUBWAY"), ("LRT-1", "SUBWAY")]),
-            google_route(42, [("EDSA Carousel", "BUS")]),
-        ]})
-        routes = ts.transit_routes(self.origin, self.destination)
-        self.assertEqual([route["label"] for route in routes], ["EDSA Carousel", "MRT-3 + LRT-1"])
-        self.assertEqual(routes[1]["transfers"], 1)
-        self.assertEqual(routes[0]["legs"][1]["vehicle"], "bus")
+    def test_removes_inline_citations_from_tips(self):
+        text = "Alight at Ayala. Fares are discounted ([dotrmrt3.gov.ph](https://www.dotrmrt3.gov.ph/x.pdf?utm_source=openai)). See [LRMC](https://lrmc.ph) too."
+        self.assertEqual(cs.clean_text(text), "Alight at Ayala. Fares are discounted. See LRMC too.")
 
-    @patch.object(ts, "session")
-    def test_walking_only_answers_are_not_transit(self, session):
-        walk_only = {"distanceMeters": 900, "duration": "700s", "polyline": {"encodedPolyline": "_p~iF~ps|U"}, "legs": [{"steps": [google_step("WALK", 700, 900)]}]}
-        session.post.return_value = fake_response(payload={"routes": [walk_only]})
-        with self.assertRaises(ServiceError) as ctx:
-            ts.transit_routes(self.origin, self.destination)
-        self.assertEqual(ctx.exception.status, 404)
+    def test_matches_station_names_written_in_different_ways(self):
+        self.assertEqual(cs.match_station("Araneta Center-Cubao LRT-2 Station", "LRT-2"), ("LRT-2", 5))
+        self.assertEqual(cs.match_station("Cubao", None, "mrt")[0], "MRT-3")
+        self.assertEqual(cs.match_station("Cubao", "LRT-2")[0], "LRT-2")
+        self.assertIsNone(cs.match_station("Nowhere Station", None))
 
-    @patch.object(ts, "session")
-    def test_no_routes_found(self, session):
-        session.post.return_value = fake_response(payload={})
-        with self.assertRaises(ServiceError) as ctx:
-            ts.transit_routes(self.origin, self.destination)
-        self.assertIn("No public transport route", str(ctx.exception))
+    @patch.object(cs, "session")
+    def test_drops_legs_and_options_it_cannot_check(self, session):
+        session.post.return_value = fake_response(payload=openai_answer([
+            # Unknown station names: skipped, so this option has no rides left.
+            {"summary": "Mystery train", "total_minutes": 20, "notes": "", "legs": [ai_leg("mrt", "MRT-3", "Atlantis", "El Dorado")]},
+            # A bus stop in Cebu is outside Metro Manila: skipped.
+            {"summary": "Bus", "total_minutes": 30, "notes": "", "legs": [ai_leg("bus", "Bus", "A", "B", (14.59, 120.98), (10.3, 123.9))]},
+            {"summary": "Jeep", "total_minutes": 15, "notes": "", "legs": [ai_leg("jeepney", "Jeep", "Espana", "Quiapo", (14.6085, 120.989), (14.5995, 120.984))]},
+        ]))
+        routes = cs.commute_routes(UST, QUIAPO_CHURCH, now_ms=NOW)
+        self.assertEqual([route["label"] for route in routes], ["Jeepney"])
 
-    @patch.object(ts, "session")
-    def test_sends_transit_request_with_departure_time(self, session):
-        session.post.return_value = fake_response(payload={"routes": [google_route(35, [("MRT-3", "SUBWAY")])]})
-        ts.transit_routes(self.origin, self.destination, depart_at_ms=1_800_000_000_000)
-        kwargs = session.post.call_args.kwargs
-        self.assertEqual(kwargs["json"]["travelMode"], "TRANSIT")
-        self.assertTrue(kwargs["json"]["computeAlternativeRoutes"])
-        self.assertEqual(kwargs["json"]["departureTime"], "2027-01-15T08:00:00Z")
-        self.assertEqual(kwargs["headers"]["X-Goog-Api-Key"], "test-key")
-        self.assertIn("routes.legs.steps.transitDetails", kwargs["headers"]["X-Goog-FieldMask"])
+    @patch.object(cs, "session")
+    def test_falls_back_to_trains_when_the_ai_has_nothing_usable(self, session):
+        session.post.return_value = fake_response(payload=openai_answer([]))
+        route = cs.commute_routes(INTRAMUROS, MEGAMALL, now_ms=NOW)[0]
+        self.assertEqual(route["source"], "rail-estimate")
 
-    @patch.object(ts, "session")
-    def test_same_search_is_cached(self, session):
-        session.post.return_value = fake_response(payload={"routes": [google_route(35, [("MRT-3", "SUBWAY")])]})
-        ts.transit_routes(self.origin, self.destination)
-        ts.transit_routes(self.origin, self.destination)
+    @patch.object(cs, "session")
+    def test_sends_web_search_request_with_trip_details(self, session):
+        session.post.return_value = fake_response(payload=openai_answer([]))
+        cs.commute_routes(INTRAMUROS, MEGAMALL, now_ms=NOW)
+        body = session.post.call_args.kwargs["json"]
+        self.assertEqual(body["tools"][0]["type"], "web_search")
+        self.assertEqual(body["text"]["format"]["type"], "json_schema")
+        self.assertIn("Intramuros", body["input"])
+        self.assertIn("SM Megamall", body["input"])
+        self.assertIn("jeepneys", body["instructions"])
+        self.assertEqual(session.post.call_args.kwargs["headers"]["Authorization"], "Bearer test-key")
+
+    @patch.object(cs, "session")
+    def test_same_trip_is_cached_and_re_timed(self, session):
+        session.post.return_value = fake_response(payload=openai_answer([{
+            "summary": "Jeep", "total_minutes": 15, "notes": "",
+            "legs": [ai_leg("jeepney", "Jeep", "Espana", "Quiapo", (14.6085, 120.989), (14.5995, 120.984))]}]))
+        first = cs.commute_routes(UST, QUIAPO_CHURCH, now_ms=NOW)[0]
+        later = cs.commute_routes(UST, QUIAPO_CHURCH, depart_at_ms=NOW + 3_600_000)[0]
         self.assertEqual(session.post.call_count, 1)
+        self.assertEqual(later["depart_time"] - first["depart_time"], 3_600_000)
 
-    @patch.object(ts, "session")
-    def test_rejected_key_and_rate_limit(self, session):
-        session.post.return_value = fake_response(403, {"error": {"status": "PERMISSION_DENIED"}})
-        with self.assertRaises(ServiceError) as ctx:
-            ts.transit_routes(self.origin, self.destination)
-        self.assertEqual(ctx.exception.status, 503)
-        self.assertIn("Routes API", str(ctx.exception))
-        session.post.return_value = fake_response(429, {})
-        with self.assertRaises(ServiceError) as ctx:
-            ts.transit_routes(self.origin, {"lat": 14.6, "lng": 121.0})
+    @patch.object(cs, "session")
+    def test_daily_limit_protects_the_openai_bill(self, session):
+        session.post.return_value = fake_response(payload=openai_answer([]))
+        with patch.object(cs, "DAILY_LIMIT", 1):
+            cs.commute_routes(INTRAMUROS, MEGAMALL, now_ms=NOW)
+            with self.assertRaises(ServiceError) as ctx:
+                cs.commute_routes(UST, QUIAPO_CHURCH, now_ms=NOW)
         self.assertEqual(ctx.exception.status, 429)
 
+    @patch.object(cs, "session")
+    def test_openai_errors_become_clear_messages(self, session):
+        session.post.return_value = fake_response(401, {"error": {"message": "bad key"}})
+        with self.assertRaises(ServiceError) as ctx:
+            cs.commute_routes(UST, QUIAPO_CHURCH, now_ms=NOW)
+        self.assertIn("OPENAI_API_KEY", str(ctx.exception))
+        session.post.return_value = fake_response(payload={"output": []})
+        with self.assertRaises(ServiceError) as ctx:
+            cs.commute_routes(INTRAMUROS, MEGAMALL, now_ms=NOW)
+        self.assertIn("could not read", str(ctx.exception))
 
-class TransitEndpointTests(unittest.TestCase):
+class CommuteWithoutKeyTests(unittest.TestCase):
+    @patch.object(cs, "OPENAI_KEY", "")
+    @patch.object(cs, "session")
+    def test_without_openai_key_uses_the_built_in_rail_planner(self, session):
+        cs.clear_cache()
+        route = cs.commute_routes(INTRAMUROS, MEGAMALL, now_ms=NOW)[0]
+        self.assertEqual(route["source"], "rail-estimate")
+        session.post.assert_not_called()
+
+
+class CommuteEndpointTests(unittest.TestCase):
     origin = {"lat": 14.5547, "lng": 121.0244}
     destination = {"lat": 14.6565, "lng": 121.0322}
 
@@ -726,42 +756,39 @@ class TransitEndpointTests(unittest.TestCase):
         self.client = maply.app.test_client()
 
     def post(self, **extra):
-        return self.client.post("/api/transit", json={"origin": self.origin, "destination": self.destination, **extra})
+        return self.client.post("/api/commute", json={"origin": self.origin, "destination": self.destination, **extra})
 
     def test_returns_routes(self):
-        with patch.object(routes_api, "transit_routes", return_value=[{"label": "MRT-3"}]) as transit:
+        with patch.object(routes_api, "commute_routes", return_value=[{"label": "Jeepney"}]) as commute:
             response = self.post()
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json["routes"], [{"label": "MRT-3"}])
-        self.assertIsNone(transit.call_args.args[2], "no departure time means leave now")
+        self.assertEqual(response.json["routes"], [{"label": "Jeepney"}])
+        self.assertIsNone(commute.call_args.args[2], "no departure time means leave now")
 
     def test_passes_a_future_departure_time(self):
         later = int(time.time() * 1000) + 3_600_000
-        with patch.object(routes_api, "transit_routes", return_value=[]) as transit:
+        with patch.object(routes_api, "commute_routes", return_value=[]) as commute:
             self.assertEqual(self.post(depart_at=later).status_code, 200)
-        self.assertEqual(transit.call_args.args[2], later)
+        self.assertEqual(commute.call_args.args[2], later)
 
     def test_rejects_bad_or_far_off_departure_times(self):
-        with patch.object(routes_api, "transit_routes") as transit:
+        with patch.object(routes_api, "commute_routes") as commute:
             self.assertEqual(self.post(depart_at="soon").status_code, 400)
             self.assertEqual(self.post(depart_at=int(time.time() * 1000) - 3_600_000).status_code, 400)
             self.assertEqual(self.post(depart_at=int(time.time() * 1000) + 40 * 86_400_000).status_code, 400)
-        transit.assert_not_called()
+        commute.assert_not_called()
 
     def test_rejects_places_outside_metro_manila(self):
-        with patch.object(routes_api, "transit_routes") as transit:
-            response = self.client.post("/api/transit", json={"origin": {"lat": 10.3, "lng": 123.9}, "destination": self.destination})
+        with patch.object(routes_api, "commute_routes") as commute:
+            response = self.client.post("/api/commute", json={"origin": {"lat": 10.3, "lng": 123.9}, "destination": self.destination})
         self.assertEqual(response.status_code, 400)
-        transit.assert_not_called()
+        commute.assert_not_called()
 
-    @patch.object(ts, "GOOGLE_KEY", "")
-    def test_without_google_key_uses_the_built_in_rail_planner(self):
-        ts.clear_cache()
-        with patch.object(ts, "session") as session:
-            response = self.post()
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json["routes"][0]["source"], "rail-estimate")
-        session.post.assert_not_called()
+    def test_counts_five_against_the_rate_limit(self):
+        with patch.object(routes_api, "commute_routes", return_value=[]):
+            statuses = [self.post().status_code for _ in range(5)]
+        # 4 searches x 5 uses the whole budget of 20 per minute.
+        self.assertEqual(statuses, [200, 200, 200, 200, 429])
 
 
 class ApiErrorTests(unittest.TestCase):
