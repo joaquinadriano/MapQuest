@@ -1,13 +1,17 @@
-import requests
-import urllib.parse
 import os
+import urllib.parse
+import requests
 from dotenv import load_dotenv
+
+from services.converters import meters_to_km, meters_to_miles
 
 load_dotenv()
 route_url = "https://graphhopper.com/api/1/route?"
 key = os.getenv("GRAPHHOPPER_API_KEY", "").strip()
 if not key:
     raise RuntimeError("Set GRAPHHOPPER_API_KEY in your .env file before starting the CLI.")
+
+TIMEOUT = (4, 16)
 
 
 def geocoding(location, key):
@@ -17,26 +21,23 @@ def geocoding(location, key):
     geocode_url = "https://graphhopper.com/api/1/geocode?"
     url = geocode_url + urllib.parse.urlencode({"q": location, "limit": "1", "key": key})
 
-    replydata = requests.get(url)
-    json_status = replydata.status_code
-    json_data = replydata.json()
+    try:
+        replydata = requests.get(url, timeout=TIMEOUT)
+        json_status = replydata.status_code
+        json_data = replydata.json()
+    except requests.RequestException as exc:
+        print("Geocoding connection error: " + str(exc))
+        return 0, "null", "null", location
 
-    if json_status == 200 and len(json_data["hits"]) != 0:
-        json_data = requests.get(url).json()
-        lat = json_data["hits"][0]["point"]["lat"]
-        lng = json_data["hits"][0]["point"]["lng"]
-        name = json_data["hits"][0]["name"]
-        value = json_data["hits"][0]["osm_value"]
+    if json_status == 200 and len(json_data.get("hits", [])) != 0:
+        hit = json_data["hits"][0]
+        lat = hit["point"]["lat"]
+        lng = hit["point"]["lng"]
+        name = hit["name"]
+        value = hit.get("osm_value", "location")
 
-        if "country" in json_data["hits"][0]:
-            country = json_data["hits"][0]["country"]
-        else:
-            country = ""
-
-        if "state" in json_data["hits"][0]:
-            state = json_data["hits"][0]["state"]
-        else:
-            state = ""
+        country = hit.get("country", "")
+        state = hit.get("state", "")
 
         if len(state) != 0 and len(country) != 0:
             new_loc = name + ", " + state + ", " + country
@@ -51,7 +52,8 @@ def geocoding(location, key):
         lng = "null"
         new_loc = location
         if json_status != 200:
-            print("Geocode API status: " + str(json_status) + "\nError message: " + json_data["message"])
+            err_msg = json_data.get("message", "Unknown error")
+            print("Geocode API status: " + str(json_status) + "\nError message: " + err_msg)
 
     return json_status, lat, lng, new_loc
 
@@ -87,8 +89,14 @@ while True:
         op = "&point=" + str(orig[1]) + "%2C" + str(orig[2])
         dp = "&point=" + str(dest[1]) + "%2C" + str(dest[2])
         paths_url = route_url + urllib.parse.urlencode({"key": key, "vehicle": vehicle}) + op + dp
-        paths_status = requests.get(paths_url).status_code
-        paths_data = requests.get(paths_url).json()
+
+        try:
+            paths_res = requests.get(paths_url, timeout=TIMEOUT)
+            paths_status = paths_res.status_code
+            paths_data = paths_res.json()
+        except requests.RequestException as exc:
+            print("Routing request failed: " + str(exc))
+            continue
 
         print("Routing API Status: " + str(paths_status) + "\nRouting API URL:\n" + paths_url)
         print("=================================================")
@@ -96,22 +104,27 @@ while True:
         print("=================================================")
 
         if paths_status == 200:
-            miles = (paths_data["paths"][0]["distance"]) / 1000 / 1.61
-            km = (paths_data["paths"][0]["distance"]) / 1000
-            sec = int(paths_data["paths"][0]["time"] / 1000 % 60)
-            min = int(paths_data["paths"][0]["time"] / 1000 / 60 % 60)
-            hr = int(paths_data["paths"][0]["time"] / 1000 / 60 / 60)
+            raw_distance = paths_data["paths"][0]["distance"]
+            raw_time = paths_data["paths"][0]["time"]
+
+            miles = meters_to_miles(raw_distance, 1)
+            km = meters_to_km(raw_distance, 1)
+            sec = int(raw_time / 1000 % 60)
+            min = int(raw_time / 1000 / 60 % 60)
+            hr = int(raw_time / 1000 / 60 / 60)
 
             print("Distance Traveled: {0:.1f} miles / {1:.1f} km".format(miles, km))
             print("Trip Duration: {0:02d}:{1:02d}:{2:02d}".format(hr, min, sec))
             print("=================================================")
 
-            for each in range(len(paths_data["paths"][0]["instructions"])):
-                path = paths_data["paths"][0]["instructions"][each]["text"]
-                distance = paths_data["paths"][0]["instructions"][each]["distance"]
-                print("{0} ( {1:.1f} km / {2:.1f} miles )".format(path, distance / 1000, distance / 1000 / 1.61))
+            for step in paths_data["paths"][0].get("instructions", []):
+                path = step.get("text", "Continue")
+                dist = step.get("distance", 0)
+                print("{0} ( {1:.1f} km / {2:.1f} miles )".format(path, meters_to_km(dist, 1), meters_to_miles(dist, 1)))
 
             print("=================================================")
         else:
-            print("Error message: " + paths_data["message"])
+            err_msg = paths_data.get("message", "Route calculation error")
+            print("Error message: " + err_msg)
             print("*************************************************")
+
