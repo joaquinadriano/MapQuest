@@ -162,11 +162,16 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
   /* ---------- Transit details ---------- */
 
   const fareText = (fare) => (fare ? `${fare.approximate ? 'about ' : ''}₱${Number(fare.amount).toLocaleString('en-PH', { maximumFractionDigits: 2 })} fare` : '');
-  // The built-in rail planner (used without a Google key) gives estimates for trains only.
-  // Rail-planner notices are warnings (e.g. trains not running); AI notes are general tips.
-  const transitNotes = (route) => [route.notice ? `<p class="transit-note${route.source === 'openai' ? '' : ' warn'}"><i data-lucide="${route.source === 'openai' ? 'lightbulb' : 'triangle-alert'}"></i>${escapeHtml(route.notice)}</p>` : '', route.source === 'rail-estimate' ? '<p class="transit-note"><i data-lucide="info"></i>LRT-1, LRT-2 and MRT-3 only (no jeepneys or buses). Times and fares are estimates; check the operator before you go.</p>' : '',
-    route.source === 'openai' ? `<p class="transit-note"><i data-lucide="sparkles"></i>Suggested by AI from web sources. Check jeepney and bus signboards and ask the driver or conductor; routes and fares can change.</p>${sourceLinks(route)}` : ''].join('');
-  const sourceLinks = (route) => (route.sources?.length ? `<p class="source-links">Sources: ${route.sources.map((source) => { let host = ''; try { host = new URL(source.url).hostname.replace(/^www\./, ''); } catch { return ''; } return `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(host)}</a>`; }).filter(Boolean).join(', ')}</p>` : '');
+  // Only real warnings are shown (e.g. trains not running); everything else stays out of the way.
+  const transitNotes = (route) => [route.notice ? `<p class="transit-note warn"><i data-lucide="triangle-alert"></i>${escapeHtml(route.notice)}</p>` : '',
+    route.source === 'rail-estimate' ? '<p class="transit-note"><i data-lucide="info"></i>Trains only. Times and fares are estimates.</p>' : '',
+    sourceLinks(route)].join('');
+  // One link per website, e.g. "Sources: moovitapp.com, lrta.gov.ph".
+  const sourceLinks = (route) => {
+    const byHost = new Map();
+    (route.sources || []).forEach((source) => { try { const host = new URL(source.url).hostname.replace(/^www\./, ''); if (!byHost.has(host)) byHost.set(host, source.url); } catch { /* skip bad links */ } });
+    return byHost.size ? `<p class="source-links">Sources: ${[...byHost].map(([host, url]) => `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(host)}</a>`).join(', ')}</p>` : '';
+  };
   const transitSummary = (route) => [fareText(route.fare), route.transfers ? `${route.transfers} transfer${route.transfers === 1 ? '' : 's'}` : 'No transfers', `${formatStepDistance(route.walk_m || 0)} walking`].filter(Boolean).join(', ');
   // Coloured chips for each ride, e.g. [MRT-3] > [LRT-1].
   const lineChips = (route) => route.legs.filter((leg) => leg.type === 'transit').map((leg) => `<span class="line-chip" style="${leg.color ? `background:${escapeHtml(leg.color)};color:${escapeHtml(leg.text_color || '#fff')}` : ''}"><i data-lucide="${VEHICLE_ICONS[leg.vehicle] || 'bus'}"></i>${escapeHtml(leg.line)}</span>`).join('<i data-lucide="chevron-right" class="chip-sep"></i>');
@@ -244,7 +249,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
       button.setAttribute('aria-pressed', String(item.mode === state.mode));
       let meta = '';
       if (item.loading) {
-        meta = '<span class="option-meta searching"><span class="mini-spinner"></span>Searching the web for jeep, bus and train routes (about 30 seconds)</span>';
+        meta = '<span class="option-meta searching"><span class="mini-spinner"></span>Finding jeep, bus and train routes…</span>';
       } else if (item.available && item.mode === 'commute') {
         meta = `<span class="option-meta">${[item.route?.label, fareText(item.route?.fare)].filter(Boolean).map(escapeHtml).join(', ')}</span>`;
       } else if (item.available) {
@@ -283,7 +288,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
   }
 
   function weatherTile(label, reading) {
-    if (!reading) return `<div class="weather-tile"><span class="weather-label">${label}</span><span class="empty-note">No forecast yet for this time.</span></div>`;
+    if (!reading) return `<div class="weather-tile"><span class="weather-label">${label}</span><span class="empty-note">No forecast yet.</span></div>`;
     return `<div class="weather-tile"><span class="weather-label">${label}</span><span class="weather-main"><i data-lucide="${conditionIcon(reading)}"></i><strong>${formatTemp(reading.temp_c, state.unit)}</strong></span><span class="weather-desc">${escapeHtml(reading.description || reading.condition)}</span><span class="weather-rain"><i data-lucide="umbrella"></i>${rainChance(reading)} chance of rain</span></div>`;
   }
 
@@ -304,9 +309,8 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     const strip = upcoming(data, depart).map((slot) => { const day = new Date(slot.time).toDateString(); const dayLabel = day !== lastDay ? new Date(slot.time).toLocaleDateString([], { weekday: 'short' }) : ''; lastDay = day; return `<li><span>${new Date(slot.time).toLocaleTimeString([], { hour: 'numeric' })}</span><em>${dayLabel}</em><i data-lucide="${conditionIcon(slot)}"></i><strong>${formatTemp(slot.temp_c, state.unit)}</strong><small>${rainChance(slot)}</small></li>`; }).join('');
     body.innerHTML = `<div class="weather-pair">${weatherTile(state.departAt ? `Leaving ${whenText(depart)}` : 'Leaving now', leaving)}${weatherTile(`Arriving ${whenText(arrive)}`, arriving)}</div>`
       + (advice.length ? `<ul class="weather-advice">${advice.map((item) => `<li class="${item.level}"><i data-lucide="${item.level === 'warn' ? 'triangle-alert' : 'info'}"></i><span>${escapeHtml(item.text)}</span></li>`).join('')}</ul>` : '')
-      + (better ? `<div class="weather-better"><span>Drier if you leave at <strong>${escapeHtml(whenText(better.time))}</strong> (${Math.round(better.pop * 100)}% chance of rain instead of ${Math.round(better.currentPop * 100)}%).</span><button type="button" class="chip-button" id="leaveLaterButton">Leave at ${escapeHtml(whenText(better.time))}</button></div>` : '')
-      + (strip ? `<ul class="weather-strip" aria-label="Forecast every 3 hours">${strip}</ul>` : '')
-      + '<p class="fine-print">Forecast by OpenWeatherMap, in 3-hour steps for up to 5 days.</p>';
+      + (better ? `<div class="weather-better"><span>Drier at <strong>${escapeHtml(whenText(better.time))}</strong> (${Math.round(better.pop * 100)}% rain)</span><button type="button" class="chip-button" id="leaveLaterButton">Leave then</button></div>` : '')
+      + (strip ? `<ul class="weather-strip" aria-label="Forecast every 3 hours">${strip}</ul>` : '');
     $('#leaveLaterButton')?.addEventListener('click', () => setDeparture(better.time));
     icons();
   }
@@ -389,7 +393,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
       return;
     }
     $('#alternativesCount').textContent = `${routes.length} route${routes.length === 1 ? '' : 's'}`;
-    if (routes.length < 2) { list.innerHTML = '<p class="empty-note">This is the only good route for this trip.</p>'; return; }
+    if (routes.length < 2) { list.innerHTML = '<p class="empty-note">No other good routes.</p>'; return; }
     list.innerHTML = '';
     const fastest = routes[0].duration_ms;
     routes.forEach((route, index) => {
@@ -422,7 +426,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     const list = $('#placesList'); list.innerHTML = '';
     const places = getPlaces();
     if (!places.length) {
-      list.innerHTML = '<p class="empty-note">Save places like Home or Work with the star next to a start or destination. They will show up when you tap a search box.</p>';
+      list.innerHTML = '<p class="empty-note">Tap the star next to a place to save it.</p>';
       return;
     }
     places.forEach((item) => {
@@ -667,7 +671,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     loadCommute();
     try {
       if (!(await compareModes())) return;
-      if (state.mode === 'commute' && !cachedRoute('commute')) setStatus('Searching for jeep, bus and train routes. Showing the fastest other way for now.');
+      if (state.mode === 'commute' && !cachedRoute('commute')) setStatus('Finding commute routes…');
       if (!cachedRoute(state.mode)) {
         const fastest = state.comparison.filter((item) => item.available).sort((a, b) => a.duration_ms - b.duration_ms)[0];
         if (!fastest) { if (!state.waitingForCommute) setStatus(state.comparison[0]?.error || 'No route found between these places.'); return; }

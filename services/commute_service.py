@@ -9,6 +9,8 @@ checks every leg before showing it:
 - Jeepney/bus stops must be inside Metro Manila; otherwise the previous or next
   known point is used.
 - The trip always starts at the origin and ends at the destination.
+- Jeepney, bus and walking legs are drawn along real roads (GraphHopper), not as
+  straight lines. If that fails, the straight line is kept.
 
 Answers are cached for a day, each client is rate-limited, and there is a daily cap
 (COMMUTE_DAILY_LIMIT) so the OpenAI bill stays predictable. Without an OpenAI key,
@@ -18,6 +20,7 @@ or if OpenAI fails, the built-in LRT/MRT planner is used instead.
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 from time import monotonic
@@ -26,7 +29,7 @@ import requests
 from dotenv import load_dotenv
 
 from services import rail_service as rail
-from services.graphhopper_service import ServiceError, in_metro_manila_box
+from services.graphhopper_service import ServiceError, in_metro_manila_box, road_path
 
 load_dotenv()
 
@@ -65,7 +68,7 @@ _LEG_SCHEMA = {
         "to_lat": {"type": ["number", "null"]}, "to_lng": {"type": ["number", "null"]},
         "minutes": {"type": "integer"},
         "fare_php": {"type": ["number", "null"]},
-        "instructions": {"type": "string", "description": "Signboard to look for, where to wait, where to get off"},
+        "instructions": {"type": "string", "description": "One short sentence: signboard to look for or where to get off"},
     },
 }
 SCHEMA = {
@@ -73,12 +76,11 @@ SCHEMA = {
     "properties": {
         "options": {"type": "array", "items": {
             "type": "object", "additionalProperties": False,
-            "required": ["summary", "total_minutes", "legs", "notes"],
+            "required": ["summary", "total_minutes", "legs"],
             "properties": {
                 "summary": {"type": "string"},
                 "total_minutes": {"type": "integer"},
                 "legs": {"type": "array", "items": _LEG_SCHEMA},
-                "notes": {"type": "string"},
             },
         }},
         "sources": {"type": "array", "items": {
@@ -93,8 +95,8 @@ INSTRUCTIONS = (
     "(including the EDSA Carousel busway and P2P buses), UV Express, tricycles and the LRT-1, LRT-2 and MRT-3 lines. "
     "Give 2 or 3 realistic options, fastest or most common first, as legs from the starting point to the destination, "
     "including walks. For each leg give the route or signboard, where to board and get off, approximate coordinates "
-    "of each stop, minutes and fare in Philippine pesos. Use current fares. Keep 'summary' short. Do not invent routes: "
-    "if you are unsure about a jeepney or bus route, say so in notes. Only include places in Metro Manila."
+    "of each stop, minutes and fare in Philippine pesos. Use current fares. Keep 'summary' and instructions short. Do not invent routes: "
+    "leave out any jeepney or bus route you are unsure about. Only include places in Metro Manila."
 )
 
 
@@ -224,7 +226,7 @@ def _rail_leg(raw: dict) -> dict | None:
         "headsign": (line["stations"][-1] if step > 0 else line["stations"][0])["name"],
         "from_stop": first["name"], "to_stop": last["name"], "stops": len(path) - 1,
         "distance_m": round(km * 1000), "duration_ms": ride_ms, "fare": rail.fare(line_id, km),
-        "note": clean_text(raw.get("instructions", "")),
+        "note": clean_text(raw.get("instructions", ""), 160),
         "geometry": [[stations[node]["lat"], stations[node]["lng"]] for node in path],
     }
 
@@ -238,7 +240,7 @@ def _road_leg(raw: dict, start: dict, end: dict) -> dict:
         "distance_m": round(rail.distance_m(start, end) * WALK_DETOUR),
         "duration_ms": max(1, int(raw.get("minutes") or 0)) * 60_000,
         "fare": float(raw["fare_php"]) if isinstance(raw.get("fare_php"), (int, float)) and raw["fare_php"] >= 0 else None,
-        "note": clean_text(raw.get("instructions", "")),
+        "note": clean_text(raw.get("instructions", ""), 160),
         "geometry": [[start["lat"], start["lng"]], [end["lat"], end["lng"]]],
     }
 
@@ -295,8 +297,63 @@ def build_option(raw: dict, origin: dict, destination: dict) -> dict | None:
         "legs": legs,
         "fare": {"amount": round(sum(fare for fare in fares if fare)), "currency": "PHP", "approximate": True} if any(fares) else None,
         "label": _short_label(legs),
-        "notice": clean_text(raw.get("notes", "")),
+        "notice": "",
     }
+
+
+MAX_TRANSFER_WALK_M = 1500  # longer walks between two rides mean the AI got a stop wrong
+MIN_SNAP_M = 120  # shorter walks are drawn straight
+MAX_SNAPS = 12  # GraphHopper requests per commute search (the answer is cached for a day)
+
+
+def _follow_roads(options: list[dict]) -> None:
+    """Replace straight lines with road paths: jeepney/bus legs by car, walks on foot."""
+    jobs: dict[tuple, list[dict]] = {}
+    for option in options:
+        for leg in option["legs"]:
+            if leg.get("vehicle") in ("train", "ferry") or leg["distance_m"] < MIN_SNAP_M:
+                continue
+            profile = "foot" if leg["type"] == "walk" else "car"
+            (start_lat, start_lng), (end_lat, end_lng) = leg["geometry"][0], leg["geometry"][-1]
+            jobs.setdefault((profile, start_lat, start_lng, end_lat, end_lng), []).append(leg)
+    keys = list(jobs)[:MAX_SNAPS]
+
+    def snap(key):
+        profile, start_lat, start_lng, end_lat, end_lng = key
+        try:
+            return road_path({"lat": start_lat, "lng": start_lng}, {"lat": end_lat, "lng": end_lng}, profile)
+        except Exception:  # noqa: BLE001 - a straight line is a fine fallback
+            return None
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        results = list(pool.map(snap, keys))
+    for key, result in zip(keys, results):
+        if not result:
+            continue
+        geometry, metres = result
+        for leg in jobs[key]:
+            leg["geometry"] = geometry
+            if metres:
+                leg["distance_m"] = round(metres)
+                if leg["type"] == "walk":
+                    leg["duration_ms"] = rail.walk_ms(metres)
+
+
+def _sensible(options: list[dict]) -> list[dict]:
+    """Drop repeated options and ones with a long walk between two rides."""
+    kept, seen = [], set()
+    for option in options:
+        legs = option["legs"]
+        rides = [index for index, leg in enumerate(legs) if leg["type"] == "transit"]
+        between = legs[rides[0]:rides[-1] + 1]
+        if any(leg["type"] == "walk" and leg["distance_m"] > MAX_TRANSFER_WALK_M for leg in between):
+            continue
+        signature = tuple((leg.get("line"), leg.get("from_stop"), leg.get("to_stop")) for leg in legs if leg["type"] == "transit")
+        if signature in seen:
+            continue
+        seen.add(signature)
+        kept.append(option)
+    return kept
 
 
 def _with_times(route: dict, depart_ms: int, sources: list) -> dict:
@@ -349,6 +406,8 @@ def commute_routes(origin: dict, destination: dict, depart_at_ms: int | None = N
         _count_today()
         answer = _ask_openai(origin, destination, depart_ms)
         options = [option for option in (build_option(raw, origin, destination) for raw in answer.get("options", [])[:3]) if option]
+        _follow_roads(options)
+        options = _sensible(options)
         sources = [{"title": str(source.get("title", ""))[:120], "url": source["url"]} for source in answer.get("sources", [])
                    if str(source.get("url", "")).startswith(("https://", "http://"))][:6]
         plan = {"options": options, "sources": sources}

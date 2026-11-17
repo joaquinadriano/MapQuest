@@ -41,7 +41,7 @@ test('warns walkers about heavy rain and flooding', () => {
   const data = weather([0.9, 0.9], { code: 502 });
   const advice = w.tripAdvice({ weather: data, mode: 'foot', depart: NOW + 3 * HOUR, arrive: NOW + 4 * HOUR, now: NOW });
   assert.equal(advice[0].level, 'warn');
-  assert.match(advice[0].text, /not advised/);
+  assert.match(advice[0].text, /Streets may flood/);
 });
 
 test('drivers get a milder rain note', () => {

@@ -236,6 +236,25 @@ def route_for(
     return _parse_path(path, mode, fuel_efficiency, fuel_price)
 
 
+def road_path(start: dict, end: dict, mode: str = "car") -> tuple[list, float]:
+    """The line along real roads between two points, as ([[lat, lng], ...], metres). No turn steps."""
+    require_api_key()
+    params = [("profile", PROFILES[mode]), ("key", GRAPHHOPPER_KEY), ("instructions", "false"),
+              ("points_encoded", "false"), ("calc_points", "true"),
+              ("point", f'{start["lat"]},{start["lng"]}'), ("point", f'{end["lat"]},{end["lng"]}')]
+    try:
+        response = session.get(f"{GRAPHHOPPER_URL}/route", params=params, timeout=TIMEOUT)
+    except requests.RequestException as exc:
+        raise ServiceError("Could not reach GraphHopper.", 502) from exc
+    if not response.ok:
+        raise api_error(response, "GraphHopper could not follow the roads.")
+    paths = response.json().get("paths") or []
+    points = paths[0].get("points", {}).get("coordinates", []) if paths else []
+    if len(points) < 2:
+        raise ServiceError("No road path was found.")
+    return [[point[1], point[0]] for point in points], float(paths[0].get("distance", 0))
+
+
 MAX_ALTERNATIVES = 3
 
 

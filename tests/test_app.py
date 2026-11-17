@@ -630,11 +630,15 @@ NOW = 1_800_000_000_000  # a Friday, 4 AM in Manila (off-peak)
 class CommuteServiceTests(unittest.TestCase):
     def setUp(self):
         cs.clear_cache()
+        # No GraphHopper in these tests: legs stay straight unless a test supplies road paths.
+        patcher = patch.object(cs, "road_path", side_effect=ServiceError("no roads in tests"))
+        self.road_path = patcher.start()
+        self.addCleanup(patcher.stop)
 
     @patch.object(cs, "session")
     def test_jeepney_trip_with_walks_added_and_times(self, session):
         session.post.return_value = fake_response(payload=openai_answer([{
-            "summary": "Jeep along Espana", "total_minutes": 15, "notes": "Common route.",
+            "summary": "Jeep along Espana", "total_minutes": 15,
             "legs": [ai_leg("jeepney", "Quiapo (Barbosa) jeep", "Espana Blvd near UST", "Quezon Blvd, Quiapo",
                             (14.6085, 120.9890), (14.5995, 120.9840), minutes=13, fare=13)],
         }]))
@@ -647,13 +651,48 @@ class CommuteServiceTests(unittest.TestCase):
         self.assertEqual(route["duration_ms"], sum(leg["duration_ms"] for leg in route["legs"]))
         self.assertEqual(route["fare"], {"amount": 13, "currency": "PHP", "approximate": True})
         self.assertEqual(route["sources"], [{"title": "Commute guide", "url": "https://example.ph/guide"}])
-        self.assertEqual(route["notice"], "Common route.")
+        self.assertEqual(route["notice"], "", "no AI notes are shown")
+
+    @patch.object(cs, "session")
+    def test_jeep_and_walk_legs_follow_real_roads(self, session):
+        session.post.return_value = fake_response(payload=openai_answer([{
+            "summary": "Jeep", "total_minutes": 15,
+            "legs": [ai_leg("jeepney", "Jeep", "Espana", "Quiapo", (14.6085, 120.989), (14.5995, 120.984))]}]))
+        road = [[14.6085, 120.989], [14.605, 120.987], [14.5995, 120.984]]
+        self.road_path.side_effect = lambda start, end, profile: (road, 1500.0) if profile == "car" else ([[start["lat"], start["lng"]], [end["lat"], end["lng"]]], 400.0)
+        route = cs.commute_routes(UST, QUIAPO_CHURCH, now_ms=NOW)[0]
+        jeep = route["legs"][1]
+        self.assertEqual((jeep["geometry"], jeep["distance_m"]), (road, 1500))
+        profiles = sorted(call.args[2] for call in self.road_path.call_args_list)
+        self.assertEqual(profiles, ["car", "foot"], "the short last walk stays straight")
+        walk = route["legs"][0]
+        self.assertEqual((walk["distance_m"], walk["duration_ms"]), (400, cs.rail.walk_ms(400)))
+
+    @patch.object(cs, "session")
+    def test_drops_repeats_and_long_walks_between_rides(self, session):
+        jeep = ai_leg("jeepney", "Jeep", "Espana", "Quiapo", (14.6085, 120.989), (14.5995, 120.984))
+        far_jeep = ai_leg("jeepney", "Jeep 2", "Taft", "Pasay", (14.5600, 120.995), (14.5995, 120.984))
+        session.post.return_value = fake_response(payload=openai_answer([
+            {"summary": "Jeep", "total_minutes": 15, "legs": [jeep]},
+            {"summary": "Same jeep", "total_minutes": 15, "legs": [jeep]},
+            {"summary": "Jeep, long walk, jeep", "total_minutes": 40, "legs": [jeep, far_jeep]},
+        ]))
+        routes = cs.commute_routes(UST, QUIAPO_CHURCH, now_ms=NOW)
+        self.assertEqual(len(routes), 1)
+
+    @patch.object(cs, "session")
+    def test_train_legs_are_not_sent_to_the_road_router(self, session):
+        session.post.return_value = fake_response(payload=openai_answer([{
+            "summary": "MRT", "total_minutes": 30,
+            "legs": [ai_leg("mrt", "MRT-3", "Taft Avenue", "Ortigas")]}]))
+        cs.commute_routes(INTRAMUROS, MEGAMALL, now_ms=NOW)
+        self.assertNotIn("car", [call.args[2] for call in self.road_path.call_args_list])
 
     @patch.object(cs, "session")
     def test_train_legs_use_real_station_data_not_the_ai(self, session):
         # The AI gets the direction, positions and fares wrong; Maply's rail data fixes them.
         session.post.return_value = fake_response(payload=openai_answer([{
-            "summary": "LRT-1 then MRT-3", "total_minutes": 50, "notes": "",
+            "summary": "LRT-1 then MRT-3", "total_minutes": 50,
             "legs": [ai_leg("lrt", "LRT-1 southbound", "Central Station", "EDSA Station", (1, 1), (2, 2), fare=99),
                      ai_leg("mrt", "MRT-3 southbound", "MRT-3 Taft Avenue Station", "Ortigas Station", fare=99)],
         }]))
@@ -681,10 +720,10 @@ class CommuteServiceTests(unittest.TestCase):
     def test_drops_legs_and_options_it_cannot_check(self, session):
         session.post.return_value = fake_response(payload=openai_answer([
             # Unknown station names: skipped, so this option has no rides left.
-            {"summary": "Mystery train", "total_minutes": 20, "notes": "", "legs": [ai_leg("mrt", "MRT-3", "Atlantis", "El Dorado")]},
+            {"summary": "Mystery train", "total_minutes": 20, "legs": [ai_leg("mrt", "MRT-3", "Atlantis", "El Dorado")]},
             # A bus stop in Cebu is outside Metro Manila: skipped.
-            {"summary": "Bus", "total_minutes": 30, "notes": "", "legs": [ai_leg("bus", "Bus", "A", "B", (14.59, 120.98), (10.3, 123.9))]},
-            {"summary": "Jeep", "total_minutes": 15, "notes": "", "legs": [ai_leg("jeepney", "Jeep", "Espana", "Quiapo", (14.6085, 120.989), (14.5995, 120.984))]},
+            {"summary": "Bus", "total_minutes": 30, "legs": [ai_leg("bus", "Bus", "A", "B", (14.59, 120.98), (10.3, 123.9))]},
+            {"summary": "Jeep", "total_minutes": 15, "legs": [ai_leg("jeepney", "Jeep", "Espana", "Quiapo", (14.6085, 120.989), (14.5995, 120.984))]},
         ]))
         routes = cs.commute_routes(UST, QUIAPO_CHURCH, now_ms=NOW)
         self.assertEqual([route["label"] for route in routes], ["Jeepney"])
@@ -710,7 +749,7 @@ class CommuteServiceTests(unittest.TestCase):
     @patch.object(cs, "session")
     def test_same_trip_is_cached_and_re_timed(self, session):
         session.post.return_value = fake_response(payload=openai_answer([{
-            "summary": "Jeep", "total_minutes": 15, "notes": "",
+            "summary": "Jeep", "total_minutes": 15,
             "legs": [ai_leg("jeepney", "Jeep", "Espana", "Quiapo", (14.6085, 120.989), (14.5995, 120.984))]}]))
         first = cs.commute_routes(UST, QUIAPO_CHURCH, now_ms=NOW)[0]
         later = cs.commute_routes(UST, QUIAPO_CHURCH, depart_at_ms=NOW + 3_600_000)[0]
