@@ -210,6 +210,10 @@
     drawRoute(state.route, state.origin, state.destination);
     renderSummary(); renderDirections(); renderFuel();
     rememberTrip();
+    setStatus('Route found.', 'success');
+    // On phones, slide the panel away so the route is visible on the map.
+    $('#expandSheet span').textContent = 'Show route details';
+    if (isMobile()) $('#sidebar').classList.add('collapsed');
   }
 
   const cachedRoute = (mode) => state.comparison?.find((item) => item.mode === mode && item.available && item.route)?.route;
@@ -218,7 +222,7 @@
   // asks GraphHopper again if that mode's route isn't already loaded.
   async function runRoute() {
     const cached = cachedRoute(state.mode);
-    if (cached) { setStatus(); showRoute(cached); return; }
+    if (cached) { showRoute(cached); return; }
     if (state.busy) return;
     setStatus(); setBusy(true);
     try {
@@ -229,7 +233,7 @@
     finally { setBusy(false); }
   }
 
-  // One request fetches every mode's route (GraphHopper is called once per mode, in sequence).
+  // One request fetches every mode's route (the server asks GraphHopper for all three modes at once).
   async function compareModes() {
     if (!state.origin || !state.destination || state.comparing) return false;
     state.comparing = true; $('#compareButton').disabled = true; renderComparisonLoading();

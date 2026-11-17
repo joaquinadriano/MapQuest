@@ -22,7 +22,7 @@ Python 3, Flask, Requests, Python-dotenv, vanilla JavaScript, Tailwind CSS CDN, 
 
 ### 1. Install the prerequisites
 
-Install Git and Python 3.9 or newer. On Windows, install the Python launcher (`py`) with Python. You also need internet access because the application calls GraphHopper and loads Mapbox map tiles and frontend libraries from public CDNs.
+Install Git and Python 3.10 or newer. On Windows, install the Python launcher (`py`) with Python. You also need internet access because the application calls GraphHopper and loads Mapbox map tiles and frontend libraries from public CDNs.
 
 You will need two API credentials:
 
