@@ -203,9 +203,13 @@ class MissingApiKeyTests(unittest.TestCase):
 
     @patch.object(gh, "GRAPHHOPPER_KEY", "")
     def test_route_without_key_returns_503(self):
-        place = {"lat": 14.6, "lng": 121.0}
-        response = self.client.post("/api/route", json={"origin": place, "destination": place})
+        # Use two different places: the same place twice is rejected with 400
+        # before the API key is checked.
+        origin = {"lat": 14.6, "lng": 121.0}
+        destination = {"lat": 14.55, "lng": 121.02}
+        response = self.client.post("/api/route", json={"origin": origin, "destination": destination})
         self.assertEqual(response.status_code, 503)
+        self.assertIn("GRAPHHOPPER_API_KEY", response.json["error"])
 
     @patch.object(gh, "GRAPHHOPPER_KEY", "")
     @patch.object(gh, "session")
@@ -305,7 +309,11 @@ class RouteServiceTests(unittest.TestCase):
         self.assertEqual(route["duration_ms"], 780000)
         # GraphHopper returns [lng, lat]; the map expects [lat, lng].
         self.assertEqual(route["geometry"], [[14.59, 120.98], [14.55, 121.02]])
-        self.assertEqual(route["instructions"][0], {"text": "Turn left", "distance": 100, "time": 6000, "sign": -2})
+        step = route["instructions"][0]
+        self.assertEqual({key: step[key] for key in ("text", "distance", "time", "sign")}, {"text": "Turn left", "distance": 100, "time": 6000, "sign": -2})
+        # Each step also carries ready-made distances for both unit systems.
+        self.assertEqual(step["formatted_metric"], "100 m")
+        self.assertEqual(step["formatted_imperial"], "328 ft")
         self.assertEqual(route["instructions"][1]["text"], "Continue")
 
     @patch.object(gh, "session")
@@ -359,7 +367,8 @@ class ApiErrorTests(unittest.TestCase):
     def test_invalid_key_message(self):
         error = gh.api_error(fake_response(401, {"message": "Wrong credentials"}), "fallback")
         self.assertIn("rejected the API key", str(error))
-        self.assertEqual(error.status, 502)
+        # A rejected key is a server setup problem, like a missing key, so both return 503.
+        self.assertEqual(error.status, 503)
 
     def test_quota_exceeded_keeps_429_status(self):
         error = gh.api_error(fake_response(429, {}), "fallback")
