@@ -13,6 +13,7 @@ Maply turns the original GraphHopper-powered command-line route finder into a re
 - Alternative routes: up to three routes for the chosen mode, labelled by their main road (e.g. "via Taft Avenue"), shown in a list and as grey lines you can tap on the map.
 - Metric/imperial display preference saved in this browser.
 - Driving fuel estimate in PHP, with editable price and km/L efficiency.
+- Weather planning (OpenWeatherMap): pick when to leave (now, later today, tomorrow or any time in the next 5 days) and see the weather when you leave and arrive, rain and heat advice for your travel mode (using PAGASA heat index bands), a suggested drier departure time, a 3-hourly forecast, and rain tags on Walk and Cycle.
 - Saved places: star a start or destination to save it as Home, Work, School or a named place. Saved places appear when you tap an empty search box and can be used as a start or destination in one tap.
 - Trip history: the last 50 trips with mode, distance and time, grouped by day, with search, weekly totals, one-tap re-planning and delete/clear.
 - Saved places and history are stored in this browser's `localStorage`; no account or database required.
@@ -28,10 +29,11 @@ Python 3, Flask, Requests, Python-dotenv, vanilla JavaScript, Tailwind CSS CDN, 
 
 Install Git and Python 3.10 or newer. On Windows, install the Python launcher (`py`) with Python. You also need internet access because the application calls GraphHopper and loads Mapbox map tiles and frontend libraries from public CDNs.
 
-You will need two API credentials:
+You will need these API credentials:
 
 - A GraphHopper API key that has Geocoding and Routing access. Available travel profiles depend on the account.
 - A Mapbox **public** access token (starts with `pk.`) that can load styles and tiles. Restrict its allowed URLs to localhost for development.
+- An OpenWeatherMap API key (the free plan is enough) for weather planning. Without it, everything else works and the Weather card explains how to add it. New keys can take up to 2 hours to activate.
 
 The credentials enable real place search, routes, and map tiles; the application does not include mock route data.
 

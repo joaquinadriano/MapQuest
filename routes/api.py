@@ -16,6 +16,7 @@ from services.graphhopper_service import (
     route_alternatives,
     route_for,
 )
+from services.weather_service import weather_for
 
 api = Blueprint("api", __name__)
 _request_buckets: dict[str, deque] = defaultdict(deque)
@@ -146,6 +147,16 @@ def alternatives_endpoint():
 
     mode = str(body.get("mode", "car"))
     return jsonify({"mode": mode, "routes": route_alternatives(origin, destination, mode)})
+
+
+@api.get("/api/weather")
+def weather_endpoint():
+    """Weather now and for the next five days at a place in Metro Manila (OpenWeatherMap)."""
+    place = require_metro_manila(
+        clean_place({"lat": request.args.get("lat"), "lng": request.args.get("lng")}, "Location"),
+        "Location",
+    )
+    return jsonify(weather_for(place["lat"], place["lng"]))
 
 
 @api.errorhandler(ServiceError)
