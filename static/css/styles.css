@@ -201,11 +201,12 @@ button.suggestion:hover, button.suggestion:focus-visible { background: var(--gre
 .journey-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
 .journey-time { line-height: 1; }
 .journey-time strong { font-size: 44px; font-weight: 900; letter-spacing: -0.03em; }
-.journey-time span { font-size: 18px; font-weight: 800; margin-left: 4px; }
+.journey-time span { font-size: 18px; font-weight: 800; margin-left: 4px; white-space: nowrap; }
+.journey-arrive { flex: none; }
 .journey-arrive { text-align: right; font-size: 13px; font-weight: 700; color: var(--muted); }
 .journey-arrive strong { display: block; font-size: 18px; font-weight: 900; color: var(--ink); }
-.journey-meta { margin-top: 10px; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: var(--muted); }
-.journey-meta .mode-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--green); color: #fff; border-radius: 999px; padding: 4px 10px 4px 8px; font-size: 13px; font-weight: 800; }
+.journey-meta { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 14px; font-weight: 700; color: var(--muted); }
+.journey-meta .mode-chip { flex: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; background: var(--green); color: #fff; border-radius: 999px; padding: 4px 10px 4px 8px; font-size: 13px; font-weight: 800; }
 .journey-meta svg { width: 16px; height: 16px; }
 
 /* Step-by-step timeline */
@@ -466,9 +467,9 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 3px s
 .option-meta.searching { display: flex; align-items: center; gap: 6px; }
 .mini-spinner { width: 12px; height: 12px; flex: none; border: 2px solid var(--line); border-top-color: var(--green); border-radius: 50%; animation: spin 0.8s linear infinite; }
 .transit-leg .direction-text .leg-note { margin-top: 3px; font-style: italic; }
-.source-links { margin-top: 8px; font-size: 12px; font-weight: 700; color: var(--faint); }
+.source-links { margin-top: 8px; overflow-wrap: anywhere; font-size: 12px; font-weight: 700; color: var(--faint); }
 .source-links a { color: var(--green-strong); }
-.line-chip { max-width: 190px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.line-chip { max-width: 100%; height: auto; min-height: 26px; padding-top: 4px; padding-bottom: 4px; line-height: 1.25; white-space: normal; overflow-wrap: anywhere; }
 .line-chip svg { flex: none; }
 
 /* ---------- Compact header (after a route is shown) ---------- */
