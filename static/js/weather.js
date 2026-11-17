@@ -56,23 +56,23 @@ export function tripAdvice({ weather, mode, depart, arrive, now = Date.now() }) 
   const advice = [];
 
   if (rain === 'heavy' && transit) {
-    advice.push({ level: 'warn', text: 'Heavy rain or thunderstorms are expected. Expect fewer jeeps, long lines and crowded stations, and watch for flooded streets on the way to stops.' });
+    advice.push({ level: 'warn', text: 'Heavy rain. Expect fewer jeeps and possible flooding.' });
   } else if (rain === 'heavy') {
     advice.push({ level: 'warn', text: exposed
-      ? 'Heavy rain or thunderstorms are expected. Streets may flood, so walking or cycling is not advised. Consider driving or another time.'
-      : 'Heavy rain or thunderstorms are expected. Allow extra time and avoid flooded roads.' });
+      ? 'Heavy rain. Streets may flood; consider another time.'
+      : 'Heavy rain. Allow extra time.' });
   } else if (rain === 'likely' && transit) {
-    advice.push({ level: 'info', text: 'Rain is likely. Bring an umbrella for walking and waiting at stops.' });
+    advice.push({ level: 'info', text: 'Rain likely. Bring an umbrella for waiting at stops.' });
   } else if (rain === 'likely') {
-    advice.push({ level: exposed ? 'warn' : 'info', text: exposed ? 'Rain is likely during your trip. Bring an umbrella or rain gear.' : 'Rain is likely during your trip. Traffic may be slower than usual.' });
+    advice.push({ level: exposed ? 'warn' : 'info', text: exposed ? 'Rain likely. Bring rain gear.' : 'Rain likely. Traffic may be slower.' });
   } else if (rain === 'possible' && exposed) {
-    advice.push({ level: 'info', text: 'There is a chance of rain. An umbrella is a good idea.' });
+    advice.push({ level: 'info', text: 'Chance of rain. Bring an umbrella.' });
   }
 
   if (heat === 'danger') {
-    advice.push({ level: 'warn', text: `It will feel like ${Math.round(hottest)}°C. ${exposed ? 'Avoid long walks or rides in the sun; bring water and rest in the shade.' : 'Stay hydrated and avoid waiting outside.'}` });
+    advice.push({ level: 'warn', text: `Will feel like ${Math.round(hottest)}°C. ${exposed ? 'Bring water and avoid the sun.' : 'Stay hydrated.'}` });
   } else if (heat === 'caution' && exposed) {
-    advice.push({ level: 'info', text: `It will feel like ${Math.round(hottest)}°C. Bring water and keep to the shade.` });
+    advice.push({ level: 'info', text: `Will feel like ${Math.round(hottest)}°C. Bring water.` });
   }
 
   if (!advice.length) advice.push({ level: 'info', text: 'Good weather for this trip.' });
