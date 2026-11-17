@@ -1,0 +1,330 @@
+{
+  "source": "OpenStreetMap contributors, ODbL (https://www.openstreetmap.org/copyright)",
+  "generated": "2026-11-17",
+  "lines": {
+    "MRT-3": {
+      "name": "MRT Line 3",
+      "color": "#2a64c5",
+      "stations": [
+        {
+          "name": "North Avenue",
+          "lat": 14.651694,
+          "lng": 121.032633,
+          "km": 0.0
+        },
+        {
+          "name": "Quezon Avenue",
+          "lat": 14.642449,
+          "lng": 121.038645,
+          "km": 1.215
+        },
+        {
+          "name": "GMA Kamuning",
+          "lat": 14.635333,
+          "lng": 121.043275,
+          "km": 2.15
+        },
+        {
+          "name": "Cubao",
+          "lat": 14.619478,
+          "lng": 121.051057,
+          "km": 4.101
+        },
+        {
+          "name": "Santolan-Annapolis",
+          "lat": 14.607541,
+          "lng": 121.056574,
+          "km": 5.555
+        },
+        {
+          "name": "Ortigas",
+          "lat": 14.587341,
+          "lng": 121.056519,
+          "km": 7.801
+        },
+        {
+          "name": "Shaw Boulevard",
+          "lat": 14.581102,
+          "lng": 121.053408,
+          "km": 8.572
+        },
+        {
+          "name": "Boni",
+          "lat": 14.573093,
+          "lng": 121.047644,
+          "km": 9.657
+        },
+        {
+          "name": "Guadalupe",
+          "lat": 14.566719,
+          "lng": 121.045438,
+          "km": 10.404
+        },
+        {
+          "name": "Buendia",
+          "lat": 14.553952,
+          "lng": 121.033684,
+          "km": 12.306
+        },
+        {
+          "name": "Ayala",
+          "lat": 14.548755,
+          "lng": 121.02754,
+          "km": 13.184
+        },
+        {
+          "name": "Magallanes",
+          "lat": 14.541743,
+          "lng": 121.01905,
+          "km": 14.385
+        },
+        {
+          "name": "Taft Avenue",
+          "lat": 14.537597,
+          "lng": 121.00189,
+          "km": 16.289
+        }
+      ]
+    },
+    "LRT-2": {
+      "name": "LRT Line 2",
+      "color": "#7b3fa0",
+      "stations": [
+        {
+          "name": "Antipolo",
+          "lat": 14.624835,
+          "lng": 121.121359,
+          "km": 0.0
+        },
+        {
+          "name": "Marikina-Pasig",
+          "lat": 14.620498,
+          "lng": 121.10061,
+          "km": 2.284
+        },
+        {
+          "name": "Santolan",
+          "lat": 14.622552,
+          "lng": 121.085604,
+          "km": 3.915
+        },
+        {
+          "name": "Katipunan",
+          "lat": 14.63082,
+          "lng": 121.072301,
+          "km": 5.616
+        },
+        {
+          "name": "Anonas",
+          "lat": 14.627967,
+          "lng": 121.064283,
+          "km": 6.535
+        },
+        {
+          "name": "Araneta Center - Cubao",
+          "lat": 14.622508,
+          "lng": 121.052152,
+          "km": 7.974
+        },
+        {
+          "name": "Betty Go - Belmonte",
+          "lat": 14.618605,
+          "lng": 121.042737,
+          "km": 9.076
+        },
+        {
+          "name": "Gilmore",
+          "lat": 14.613509,
+          "lng": 121.034067,
+          "km": 10.168
+        },
+        {
+          "name": "J. Ruiz",
+          "lat": 14.610565,
+          "lng": 121.026062,
+          "km": 11.089
+        },
+        {
+          "name": "V. Mapa",
+          "lat": 14.604028,
+          "lng": 121.017027,
+          "km": 12.303
+        },
+        {
+          "name": "Pureza",
+          "lat": 14.601714,
+          "lng": 121.00504,
+          "km": 13.618
+        },
+        {
+          "name": "Legarda",
+          "lat": 14.600866,
+          "lng": 120.992473,
+          "km": 14.974
+        },
+        {
+          "name": "Recto",
+          "lat": 14.603644,
+          "lng": 120.983087,
+          "km": 16.03
+        }
+      ]
+    },
+    "LRT-1": {
+      "name": "LRT Line 1",
+      "color": "#2fa84f",
+      "stations": [
+        {
+          "name": "Fernando Poe Jr.",
+          "lat": 14.657622,
+          "lng": 121.020688,
+          "km": 0.0
+        },
+        {
+          "name": "Balintawak",
+          "lat": 14.657422,
+          "lng": 121.003517,
+          "km": 1.847
+        },
+        {
+          "name": "Yamaha Monumento",
+          "lat": 14.653834,
+          "lng": 120.983848,
+          "km": 4.001
+        },
+        {
+          "name": "5th Avenue",
+          "lat": 14.644425,
+          "lng": 120.983535,
+          "km": 5.047
+        },
+        {
+          "name": "R. Papa",
+          "lat": 14.636026,
+          "lng": 120.982264,
+          "km": 5.991
+        },
+        {
+          "name": "Abad Santos",
+          "lat": 14.630607,
+          "lng": 120.98142,
+          "km": 6.601
+        },
+        {
+          "name": "Blumentritt",
+          "lat": 14.622826,
+          "lng": 120.982872,
+          "km": 7.48
+        },
+        {
+          "name": "Tayuman",
+          "lat": 14.616666,
+          "lng": 120.982711,
+          "km": 8.165
+        },
+        {
+          "name": "Bambang",
+          "lat": 14.61112,
+          "lng": 120.982438,
+          "km": 8.782
+        },
+        {
+          "name": "Doroteo Jose",
+          "lat": 14.605346,
+          "lng": 120.981998,
+          "km": 9.426
+        },
+        {
+          "name": "Carriedo",
+          "lat": 14.599028,
+          "lng": 120.981322,
+          "km": 10.132
+        },
+        {
+          "name": "Central Terminal",
+          "lat": 14.592447,
+          "lng": 120.981705,
+          "km": 10.865
+        },
+        {
+          "name": "United Nations",
+          "lat": 14.582623,
+          "lng": 120.984546,
+          "km": 12.0
+        },
+        {
+          "name": "Pedro Gil",
+          "lat": 14.576579,
+          "lng": 120.987999,
+          "km": 12.768
+        },
+        {
+          "name": "Quirino",
+          "lat": 14.570215,
+          "lng": 120.991561,
+          "km": 13.572
+        },
+        {
+          "name": "Vito Cruz",
+          "lat": 14.56346,
+          "lng": 120.994737,
+          "km": 14.398
+        },
+        {
+          "name": "Gil Puyat",
+          "lat": 14.554054,
+          "lng": 120.997144,
+          "km": 15.475
+        },
+        {
+          "name": "Libertad",
+          "lat": 14.547684,
+          "lng": 120.998613,
+          "km": 16.201
+        },
+        {
+          "name": "EDSA",
+          "lat": 14.538952,
+          "lng": 121.000588,
+          "km": 17.195
+        },
+        {
+          "name": "Baclaran",
+          "lat": 14.533913,
+          "lng": 120.99805,
+          "km": 17.818
+        },
+        {
+          "name": "Redemptorist-Aseana",
+          "lat": 14.529737,
+          "lng": 120.992985,
+          "km": 18.534
+        },
+        {
+          "name": "MIA Road",
+          "lat": 14.517992,
+          "lng": 120.992917,
+          "km": 19.84
+        },
+        {
+          "name": "PITX",
+          "lat": 14.508304,
+          "lng": 120.99124,
+          "km": 20.933
+        },
+        {
+          "name": "Ninoy Aquino Avenue",
+          "lat": 14.498939,
+          "lng": 120.994355,
+          "km": 22.027
+        },
+        {
+          "name": "Dr. Santos",
+          "lat": 14.485249,
+          "lng": 120.989397,
+          "km": 23.64
+        }
+      ]
+    }
+  }
+}

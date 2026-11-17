@@ -456,3 +456,7 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 3px s
 .transit-leg .direction-text small { display: block; font-size: 13px; font-weight: 600; color: var(--muted); }
 .transit-leg .direction-text strong { font-weight: 900; }
 .turn-icon.ride { border: 0; background: var(--ink); color: #fff; }
+.transit-note { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; padding: 9px 12px; border-radius: var(--radius-sm); background: var(--canvas); font-size: 13px; font-weight: 700; color: var(--muted); }
+.transit-note.warn { background: #fdecea; color: #8c1d18; }
+.transit-note svg { width: 16px; height: 16px; flex: none; margin-top: 1px; }
+.sidebar-footer a { color: inherit; }

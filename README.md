@@ -8,6 +8,7 @@ Maply turns the original GraphHopper-powered command-line route finder into a re
 - Built for Metro Manila: place search only suggests places in Metro Manila, and routes must start and end there.
 - Car, bike, and foot routing profiles, plus public transport. The app reports unavailable profiles without substituting another mode.
 - Public transport (Google Routes API): trains (LRT-1, LRT-2, MRT-3, PNR) and buses with line colours, where to board and get off, number of stops, timetable times, transfers, walking distance and fare. Transit follows the chosen departure time and offers up to three routes.
+- Built-in LRT/MRT planner when no Google key is set: plans LRT-1, LRT-2 and MRT-3 trips (walk to the best station, ride, transfer at EDSA/Taft, Doroteo Jose/Recto or Cubao, walk to the destination) with estimated times and approximate fares, offline and free. Station data comes from OpenStreetMap; refresh it with `python scripts/build_rail_data.py`.
 - Interactive Mapbox GL JS map with Mapbox Standard and satellite styles, route line, start/end markers, current-location control, and route bounds.
 - Route distance, estimated duration, and turn-by-turn instructions.
 - Mode comparison with per-profile error reporting.
@@ -35,7 +36,7 @@ You will need these API credentials:
 - A GraphHopper API key that has Geocoding and Routing access. Available travel profiles depend on the account.
 - A Mapbox **public** access token (starts with `pk.`) that can load styles and tiles. Restrict its allowed URLs to localhost for development.
 - An OpenWeatherMap API key (the free plan is enough) for weather planning. Without it, everything else works and the Weather card explains how to add it. New keys can take up to 2 hours to activate.
-- A Google Maps Platform API key with the **Routes API** enabled (billing must be turned on in Google Cloud; Google's monthly free usage covers light use) for public transport. Without it, Transit shows as unavailable and everything else works. Restrict the key to the Routes API; it is only used by the server.
+- A Google Maps Platform API key with the **Routes API** enabled (billing must be turned on in Google Cloud; Google's monthly free usage covers light use) for public transport with buses and real timetables. Without it, Transit uses Maply's built-in LRT/MRT planner (trains only, estimated times and fares). Restrict the key to the Routes API; it is only used by the server.
 
 The credentials enable real place search, routes, and map tiles; the application does not include mock route data.
 
