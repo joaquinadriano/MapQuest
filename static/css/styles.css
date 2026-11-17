@@ -404,3 +404,9 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 3px s
 @media (max-width: 760px) {
   .sheet-dialog { width: 100%; max-width: none; margin: auto 0 0; border-radius: 20px 20px 0 0; max-height: 88dvh; }
 }
+
+/* ---------- Alternative routes ---------- */
+
+.option.alternative { grid-template-columns: 44px 1fr auto; }
+.route-swatch { width: 44px; height: 8px; border-radius: 4px; background: #8f978d; justify-self: center; }
+.route-swatch.active { background: var(--green); }

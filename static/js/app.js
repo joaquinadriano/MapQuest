@@ -9,10 +9,11 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     if (old !== null && localStorage.getItem(`maply-${key}`) === null) localStorage.setItem(`maply-${key}`, old);
     localStorage.removeItem(`mapquest-${key}`);
   });
-  const state = { mode: localStorage.getItem('maply-mode') || 'car', unit: localStorage.getItem('maply-unit') || 'metric', origin: null, destination: null, route: null, comparison: null, map: null, mapReady: false, pendingRoute: null, markers: [], userMarker: null, satellite: false, busy: false, comparing: false };
+  const state = { mode: localStorage.getItem('maply-mode') || 'car', unit: localStorage.getItem('maply-unit') || 'metric', origin: null, destination: null, route: null, comparison: null, map: null, mapReady: false, pendingRoute: null, markers: [], userMarker: null, satellite: false, busy: false, comparing: false, alternatives: {}, loadingAlternatives: null };
   const modes = { car: { name: 'Drive', verb: 'Driving', icon: 'car-front' }, bike: { name: 'Cycle', verb: 'Cycling', icon: 'bike' }, foot: { name: 'Walk', verb: 'Walking', icon: 'footprints' } };
   if (!modes[state.mode]) state.mode = 'car';
   const GREEN = '#37ab2f';
+  const ALTERNATIVE_GREY = '#8f978d';
   // Maply covers Metro Manila only; keep the map near it (with some room around the edges).
   const METRO_MANILA = { minLat: 14.34, maxLat: 14.79, minLng: 120.90, maxLng: 121.14 };
   const METRO_MANILA_VIEW = [[120.70, 14.20], [121.35, 14.95]];
@@ -50,6 +51,10 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
       state.map.resize();
       if (state.pendingRoute) { const [route, origin, destination] = state.pendingRoute; state.pendingRoute = null; drawRoute(route, origin, destination); }
     });
+    // Tap a grey route on the map to switch to it.
+    state.map.on('click', 'alternative-routes', (event) => { const index = event.features?.[0]?.properties?.index; if (index !== undefined) selectAlternative(Number(index)); });
+    state.map.on('mouseenter', 'alternative-routes', () => { state.map.getCanvas().style.cursor = 'pointer'; });
+    state.map.on('mouseleave', 'alternative-routes', () => { state.map.getCanvas().style.cursor = ''; });
     state.map.on('error', (event) => {
       if (event.error?.status === 401 || event.error?.status === 403) showToast('Mapbox rejected this token. Check that it is valid and allowed for localhost.');
     });
@@ -58,8 +63,8 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
 
   function clearMapRoute() {
     if (!state.map || !state.mapReady) return;
-    ['planned-route', 'planned-route-casing'].forEach((id) => { if (state.map.getLayer(id)) state.map.removeLayer(id); });
-    if (state.map.getSource('planned-route')) state.map.removeSource('planned-route');
+    ['planned-route', 'planned-route-casing', 'alternative-routes'].forEach((id) => { if (state.map.getLayer(id)) state.map.removeLayer(id); });
+    ['planned-route', 'alternative-routes'].forEach((id) => { if (state.map.getSource(id)) state.map.removeSource(id); });
     state.markers.forEach((marker) => marker.remove());
     state.markers = [];
   }
@@ -76,7 +81,14 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     clearMapRoute();
     const coordinates = route.geometry.map(([lat, lng]) => [lng, lat]);
     const dashed = state.mode === 'foot';
-    state.map.addSource('planned-route', { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } } });
+    // Other routes for this mode are drawn first, in grey, so the chosen route sits on top.
+    const others = (state.alternatives[state.mode] || []).map((alt, index) => ({ alt, index })).filter(({ alt }) => !sameRoute(alt, route));
+    if (others.length) {
+      state.map.addSource('alternative-routes', { type: 'geojson', data: { type: 'FeatureCollection', features: others.map(({ alt, index }) => ({ type: 'Feature', properties: { index }, geometry: { type: 'LineString', coordinates: alt.geometry.map(([lat, lng]) => [lng, lat]) } })) } });
+      state.map.addLayer({ id: 'alternative-routes', type: 'line', source: 'alternative-routes', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': ALTERNATIVE_GREY, 'line-width': 6, 'line-opacity': 0.85 } });
+      others.forEach(({ alt }) => alt.geometry.forEach(([lat, lng]) => coordinates.push([lng, lat])));
+    }
+    state.map.addSource('planned-route', { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: route.geometry.map(([lat, lng]) => [lng, lat]) } } });
     state.map.addLayer({ id: 'planned-route-casing', type: 'line', source: 'planned-route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 11 } });
     state.map.addLayer({ id: 'planned-route', type: 'line', source: 'planned-route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': GREEN, 'line-width': 7, ...(dashed ? { 'line-dasharray': [0.1, 1.8] } : {}) } });
     const start = new mapboxgl.Marker({ element: makeMarker(), anchor: 'center' }).setLngLat([origin.lng, origin.lat]).setPopup(new mapboxgl.Popup({ offset: 16 }).setHTML(`<strong>Start</strong><br>${escapeHtml(origin.name)}`)).addTo(state.map);
@@ -103,6 +115,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     const liters = distanceMeters / 1000 / efficiency;
     return { liters, cost: liters * price };
   }
+  const sameRoute = (a, b) => !!a && !!b && a.distance_m === b.distance_m && a.duration_ms === b.duration_ms;
   const peso = (amount) => `₱${amount.toLocaleString('en-PH', { maximumFractionDigits: 0 })}`;
 
   /* ---------- Rendering ---------- */
@@ -182,6 +195,59 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
       list.appendChild(button);
     });
     icons();
+  }
+
+  /* ---------- Alternative routes ---------- */
+
+  // Fetch other routes for the current mode once per search (2 GraphHopper credits), then reuse them.
+  async function loadAlternatives() {
+    const mode = state.mode; const key = `${mode}:${state.origin.lat},${state.origin.lng}>${state.destination.lat},${state.destination.lng}`;
+    if (state.alternatives[mode] || state.loadingAlternatives === key) { renderAlternatives(); return; }
+    state.loadingAlternatives = key; renderAlternatives();
+    try {
+      const result = await api('/api/alternatives', { method: 'POST', body: JSON.stringify({ origin: state.origin, destination: state.destination, mode }) });
+      if (state.loadingAlternatives !== key) return; // A newer search replaced this one.
+      state.alternatives[mode] = result.routes;
+      state.alternativesError = null;
+    } catch (error) {
+      if (state.loadingAlternatives !== key) return;
+      state.alternativesError = error.message;
+    } finally {
+      if (state.loadingAlternatives === key) state.loadingAlternatives = null;
+    }
+    if (state.mode === mode) { renderAlternatives(); if (state.route) drawRoute(state.route, state.origin, state.destination); }
+  }
+
+  function renderAlternatives() {
+    const section = $('#alternativesSection'); const list = $('#alternativesList');
+    if (!state.route) { section.classList.add('hidden'); return; }
+    section.classList.remove('hidden');
+    const routes = state.alternatives[state.mode];
+    if (!routes) {
+      $('#alternativesCount').textContent = '';
+      list.innerHTML = state.loadingAlternatives ? '<div class="option-skeleton"></div><div class="option-skeleton"></div>' : `<p class="empty-note">${escapeHtml(state.alternativesError || 'Other routes are not available right now.')}</p>`;
+      return;
+    }
+    $('#alternativesCount').textContent = `${routes.length} route${routes.length === 1 ? '' : 's'}`;
+    if (routes.length < 2) { list.innerHTML = '<p class="empty-note">This is the only good route for this trip.</p>'; return; }
+    list.innerHTML = '';
+    const fastest = routes[0].duration_ms;
+    routes.forEach((route, index) => {
+      const selected = sameRoute(route, state.route);
+      const extra = Math.round((route.duration_ms - fastest) / 60000);
+      const time = durationParts(route.duration_ms);
+      const button = document.createElement('button'); button.type = 'button';
+      button.className = `option alternative${selected ? ' selected' : ''}`; button.setAttribute('aria-pressed', String(selected));
+      button.innerHTML = `<span class="route-swatch${selected ? ' active' : ''}" aria-hidden="true"></span><span class="option-body"><span class="option-name">${escapeHtml(route.label || `Route ${index + 1}`)}${index === 0 ? '<span class="option-tag">Fastest</span>' : ''}</span><span class="option-meta">${formatDistance(route.distance_m)}${extra > 0 ? `, ${extra} min slower` : ''}</span></span><span class="option-time"><strong>${time.value}</strong><small>${time.unit}</small></span>`;
+      button.addEventListener('click', () => selectAlternative(index));
+      list.appendChild(button);
+    });
+  }
+
+  function selectAlternative(index) {
+    const route = state.alternatives[state.mode]?.[index];
+    if (!route || sameRoute(route, state.route)) return;
+    showRoute(route);
   }
 
   function markSelectedOption() {
@@ -320,7 +386,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
   function showRoute(route) {
     state.route = route;
     drawRoute(state.route, state.origin, state.destination);
-    renderSummary(); renderDirections(); renderFuel();
+    renderSummary(); renderDirections(); renderFuel(); loadAlternatives();
     recordTrip({ origin: state.origin, destination: state.destination, mode: state.mode, route });
     renderSaved();
     setStatus('Route found.', 'success');
@@ -369,7 +435,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     if (state.busy) return;
     if (!state.origin || !state.destination) { setStatus('Pick a start and destination from the suggestions.'); return; }
     setStatus(); setBusy(true);
-    state.comparison = null;
+    state.comparison = null; state.alternatives = {}; state.alternativesError = null; state.loadingAlternatives = null;
     try {
       if (!(await compareModes())) return;
       if (!cachedRoute(state.mode)) {
@@ -422,7 +488,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
   function updateUnit(unit) {
     state.unit = unit; localStorage.setItem('maply-unit', unit);
     $$('[data-unit]').forEach((button) => button.classList.toggle('selected', button.dataset.unit === unit));
-    if (state.route) { renderSummary(); renderDirections(); renderFuel(); }
+    if (state.route) { renderSummary(); renderDirections(); renderFuel(); renderAlternatives(); }
     if (state.comparison) renderComparison();
   }
 

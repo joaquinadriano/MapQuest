@@ -13,6 +13,7 @@ from services.graphhopper_service import (
     clean_place,
     geocode,
     require_metro_manila,
+    route_alternatives,
     route_for,
 )
 
@@ -26,7 +27,8 @@ _GRAPHOPPER_CREDIT_BUDGET = 20
 @api.before_request
 def limit_graphhopper_requests():
     """Limit accidental bursts of billable geocode and route requests per client."""
-    costs = {"api.geocode_endpoint": 1, "api.route_endpoint": 1, "api.compare_endpoint": 3}
+    # GraphHopper charges about 2 credits for an alternative-routes request.
+    costs = {"api.geocode_endpoint": 1, "api.route_endpoint": 1, "api.compare_endpoint": 3, "api.alternatives_endpoint": 2}
     cost = costs.get(request.endpoint)
     if cost is None:
         return None
@@ -130,6 +132,20 @@ def compare_endpoint():
 
     results = [results_map[mode] for mode in modes]
     return jsonify({"comparison": results, "origin": origin, "destination": destination})
+
+
+@api.post("/api/alternatives")
+def alternatives_endpoint():
+    """Up to three different routes for one travel mode, fastest first."""
+    body = request.get_json(silent=True) or {}
+    origin = require_metro_manila(clean_place(body.get("origin"), "Origin"), "Starting point")
+    destination = require_metro_manila(clean_place(body.get("destination"), "Destination"), "Destination")
+
+    if abs(origin["lat"] - destination["lat"]) < 1e-6 and abs(origin["lng"] - destination["lng"]) < 1e-6:
+        raise ServiceError("Origin and destination cannot be the same place.", 400)
+
+    mode = str(body.get("mode", "car"))
+    return jsonify({"mode": mode, "routes": route_alternatives(origin, destination, mode)})
 
 
 @api.errorhandler(ServiceError)
