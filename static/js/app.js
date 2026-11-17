@@ -17,8 +17,8 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
   const VEHICLE_ICONS = { train: 'train-front', bus: 'bus', jeepney: 'bus-front', van: 'car-front', tricycle: 'bike', ferry: 'ship' };
   if (state.mode === 'transit') state.mode = 'commute';
   if (!modes[state.mode]) state.mode = 'car';
-  const GREEN = '#37ab2f';
-  const ALTERNATIVE_GREY = '#8f978d';
+  const ROUTE_BLUE = '#2f6db5';
+  const ALTERNATIVE_GREY = '#9aa7b8';
   // Maply covers Metro Manila only; keep the map near it (with some room around the edges).
   const METRO_MANILA = { minLat: 14.34, maxLat: 14.79, minLng: 120.90, maxLng: 121.14 };
   const METRO_MANILA_VIEW = [[120.70, 14.20], [121.35, 14.95]];
@@ -97,12 +97,12 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     state.map.addLayer({ id: 'planned-route-casing', type: 'line', source: 'planned-route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 11 } });
     if (route.legs) {
       // Transit: each ride in its line's colour, walks dotted.
-      const features = route.legs.filter((leg) => leg.geometry.length > 1).map((leg) => ({ type: 'Feature', properties: { kind: leg.type, color: leg.color || GREEN }, geometry: { type: 'LineString', coordinates: leg.geometry.map(([lat, lng]) => [lng, lat]) } }));
+      const features = route.legs.filter((leg) => leg.geometry.length > 1).map((leg) => ({ type: 'Feature', properties: { kind: leg.type, color: leg.color || ROUTE_BLUE }, geometry: { type: 'LineString', coordinates: leg.geometry.map(([lat, lng]) => [lng, lat]) } }));
       state.map.addSource('transit-legs', { type: 'geojson', data: { type: 'FeatureCollection', features } });
-      state.map.addLayer({ id: 'transit-walk', type: 'line', source: 'transit-legs', filter: ['==', ['get', 'kind'], 'walk'], layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#5f655d', 'line-width': 5, 'line-dasharray': [0.1, 1.8] } });
+      state.map.addLayer({ id: 'transit-walk', type: 'line', source: 'transit-legs', filter: ['==', ['get', 'kind'], 'walk'], layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#5b6878', 'line-width': 5, 'line-dasharray': [0.1, 1.8] } });
       state.map.addLayer({ id: 'transit-ride', type: 'line', source: 'transit-legs', filter: ['==', ['get', 'kind'], 'transit'], layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': 7 } });
     } else {
-      state.map.addLayer({ id: 'planned-route', type: 'line', source: 'planned-route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': GREEN, 'line-width': 7, ...(dashed ? { 'line-dasharray': [0.1, 1.8] } : {}) } });
+      state.map.addLayer({ id: 'planned-route', type: 'line', source: 'planned-route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': ROUTE_BLUE, 'line-width': 7, ...(dashed ? { 'line-dasharray': [0.1, 1.8] } : {}) } });
     }
     const start = new mapboxgl.Marker({ element: makeMarker(), anchor: 'center' }).setLngLat([origin.lng, origin.lat]).setPopup(new mapboxgl.Popup({ offset: 16 }).setHTML(`<strong>Start</strong><br>${escapeHtml(origin.name)}`)).addTo(state.map);
     const end = new mapboxgl.Marker({ element: makeMarker(true), anchor: 'center' }).setLngLat([destination.lng, destination.lat]).setPopup(new mapboxgl.Popup({ offset: 16 }).setHTML(`<strong>Destination</strong><br>${escapeHtml(destination.name)}`)).addTo(state.map);
@@ -563,7 +563,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
 
   /* ---------- Compact header ---------- */
 
-  // After a route is shown, the green search form folds into a one-line trip bar
+  // After a route is shown, the blue search form folds into a one-line trip bar
   // ("Pasig to Cubao, leave now, Edit") so the route details get the space.
   const shortName = (place) => String(place?.name || '').split(',')[0].trim() || 'Selected place';
 
