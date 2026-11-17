@@ -28,6 +28,22 @@
             </div>
             <button type="button" class="swap-button" id="swapButton" aria-label="Swap start and destination"><i data-lucide="arrow-up-down"></i></button>
           </div>
+          <div class="depart-row">
+            <i data-lucide="clock" aria-hidden="true"></i>
+            <label for="departSelect">Leave</label>
+            <select id="departSelect">
+              <option value="now">Now</option>
+              <option value="1">In 1 hour</option>
+              <option value="2">In 2 hours</option>
+              <option value="3">In 3 hours</option>
+              <option value="6">In 6 hours</option>
+              <option value="tomorrow-7">Tomorrow, 7:00 AM</option>
+              <option value="tomorrow-17">Tomorrow, 5:00 PM</option>
+              <option value="custom">Pick a time…</option>
+            </select>
+            <label class="sr-only" for="departCustom">Departure date and time</label>
+            <input id="departCustom" type="datetime-local" hidden>
+          </div>
           <button type="submit" id="findRoute" class="find-button"><span>Find routes</span></button>
           <div id="statusMessage" class="status-message" role="status" aria-live="polite"></div>
         </form>
@@ -40,6 +56,11 @@
         </section>
 
         <section id="routeSummary" class="panel journey hidden" aria-live="polite"></section>
+
+        <section id="weatherSection" class="panel hidden" aria-labelledby="weatherTitle">
+          <div class="panel-title"><h2 id="weatherTitle">Weather</h2><span id="weatherPlace" class="count-badge"></span></div>
+          <div id="weatherBody" aria-live="polite"></div>
+        </section>
 
         <section id="alternativesSection" class="panel hidden" aria-labelledby="alternativesTitle">
           <div class="panel-title"><h2 id="alternativesTitle">Other routes</h2><span id="alternativesCount" class="count-badge"></span></div>

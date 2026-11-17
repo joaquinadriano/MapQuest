@@ -1,3 +1,4 @@
+import { conditionIcon, driestDeparture, formatTemp, rainChance, rainRisk, readingAt, tripAdvice, upcoming } from './weather.js';
 import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPlaces, historyStats, recentTrips, recordTrip, removePlace, removeTrip, savePlace } from './store.js';
 
 (() => {
@@ -9,7 +10,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     if (old !== null && localStorage.getItem(`maply-${key}`) === null) localStorage.setItem(`maply-${key}`, old);
     localStorage.removeItem(`mapquest-${key}`);
   });
-  const state = { mode: localStorage.getItem('maply-mode') || 'car', unit: localStorage.getItem('maply-unit') || 'metric', origin: null, destination: null, route: null, comparison: null, map: null, mapReady: false, pendingRoute: null, markers: [], userMarker: null, satellite: false, busy: false, comparing: false, alternatives: {}, loadingAlternatives: null };
+  const state = { mode: localStorage.getItem('maply-mode') || 'car', unit: localStorage.getItem('maply-unit') || 'metric', origin: null, destination: null, route: null, comparison: null, map: null, mapReady: false, pendingRoute: null, markers: [], userMarker: null, satellite: false, busy: false, comparing: false, alternatives: {}, loadingAlternatives: null, departAt: null, weather: null };
   const modes = { car: { name: 'Drive', verb: 'Driving', icon: 'car-front' }, bike: { name: 'Cycle', verb: 'Cycling', icon: 'bike' }, foot: { name: 'Walk', verb: 'Walking', icon: 'footprints' } };
   if (!modes[state.mode]) state.mode = 'car';
   const GREEN = '#37ab2f';
@@ -108,7 +109,12 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     const hours = Math.floor(minutes / 60); const rest = minutes % 60;
     return { value: rest ? `${hours}h ${String(rest).padStart(2, '0')}` : `${hours}h`, unit: rest ? 'hr min' : 'hr' };
   }
-  const arrivalTime = (milliseconds) => new Date(Date.now() + milliseconds).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const clock = (time) => new Date(time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  // Departure time: "now" unless the user picked a time in the Leave menu.
+  const departTime = () => state.departAt ?? Date.now();
+  const isToday = (time) => new Date(time).toDateString() === new Date().toDateString();
+  const whenText = (time) => (isToday(time) ? clock(time) : `${new Date(time).toLocaleDateString([], { weekday: 'short' })} ${clock(time)}`);
+  const arrivalTime = (milliseconds) => whenText(departTime() + milliseconds);
   function fuelCost(distanceMeters) {
     const price = Number($('#fuelPrice').value), efficiency = Number($('#fuelEfficiency').value);
     if (!(efficiency > 0) || !(price >= 0)) return null;
@@ -124,7 +130,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     const route = state.route; if (!route) return;
     const time = durationParts(route.duration_ms);
     $('#routeSummary').classList.remove('hidden');
-    $('#routeSummary').innerHTML = `<div class="journey-head"><div class="journey-time"><strong>${time.value}</strong><span>${time.unit}</span></div><div class="journey-arrive">Arrive around<strong>${arrivalTime(route.duration_ms)}</strong></div></div><div class="journey-meta"><span class="mode-chip"><i data-lucide="${modes[state.mode].icon}"></i>${modes[state.mode].verb}</span><span>${formatDistance(route.distance_m)}</span></div>`;
+    $('#routeSummary').innerHTML = `<div class="journey-head"><div class="journey-time"><strong>${time.value}</strong><span>${time.unit}</span></div><div class="journey-arrive">${state.departAt ? `Leave ${whenText(state.departAt)}, arrive` : 'Arrive around'}<strong>${arrivalTime(route.duration_ms)}</strong></div></div><div class="journey-meta"><span class="mode-chip"><i data-lucide="${modes[state.mode].icon}"></i>${modes[state.mode].verb}</span><span>${formatDistance(route.distance_m)}</span></div>`;
     icons();
   }
 
@@ -190,11 +196,89 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
         meta = `<span class="option-error">${escapeHtml(item.error || 'Not available for this trip')}</span>`;
       }
       const time = item.available ? durationParts(item.duration_ms) : null;
-      button.innerHTML = `<span class="option-icon"><i data-lucide="${mode.icon}"></i></span><span class="option-body"><span class="option-name">${mode.name}${item.mode === fastest ? '<span class="option-tag">Fastest</span>' : ''}</span>${meta}</span>${time ? `<span class="option-time"><strong>${time.value}</strong><small>${time.unit}</small></span>` : ''}`;
+      button.innerHTML = `<span class="option-icon"><i data-lucide="${mode.icon}"></i></span><span class="option-body"><span class="option-name">${mode.name}${item.mode === fastest ? '<span class="option-tag">Fastest</span>' : ''}${item.available ? rainTag(item.mode) : ''}</span>${meta}</span>${time ? `<span class="option-time"><strong>${time.value}</strong><small>${time.unit}</small></span>` : ''}`;
       button.addEventListener('click', () => { if (item.mode === state.mode && state.route) return; state.mode = item.mode; localStorage.setItem('maply-mode', item.mode); markSelectedOption(); runRoute(); });
       list.appendChild(button);
     });
     icons();
+  }
+
+  /* ---------- Weather planning ---------- */
+
+  // Weather is fetched for the destination (Metro Manila is small enough that one
+  // forecast covers the trip) and reused until the destination changes.
+  async function loadWeather() {
+    const place = state.destination; if (!place) return;
+    const key = `${place.lat.toFixed(2)},${place.lng.toFixed(2)}`;
+    if (state.weather?.key === key && (state.weather.data || state.weather.loading)) { renderWeather(); return; }
+    state.weather = { key, loading: true }; renderWeather();
+    try {
+      const data = await api(`/api/weather?lat=${place.lat}&lng=${place.lng}`);
+      if (state.weather?.key !== key) return;
+      state.weather = { key, data };
+    } catch (error) {
+      if (state.weather?.key !== key) return;
+      state.weather = { key, error: error.message };
+    }
+    renderWeather();
+    if (state.comparison) renderComparison();
+  }
+
+  function weatherTile(label, reading) {
+    if (!reading) return `<div class="weather-tile"><span class="weather-label">${label}</span><span class="empty-note">No forecast yet for this time.</span></div>`;
+    return `<div class="weather-tile"><span class="weather-label">${label}</span><span class="weather-main"><i data-lucide="${conditionIcon(reading)}"></i><strong>${formatTemp(reading.temp_c, state.unit)}</strong></span><span class="weather-desc">${escapeHtml(reading.description || reading.condition)}</span><span class="weather-rain"><i data-lucide="umbrella"></i>${rainChance(reading)} chance of rain</span></div>`;
+  }
+
+  function renderWeather() {
+    const section = $('#weatherSection'); const body = $('#weatherBody');
+    if (!state.route || !state.weather) { section.classList.add('hidden'); return; }
+    section.classList.remove('hidden');
+    $('#weatherPlace').textContent = state.weather.data?.place || '';
+    if (state.weather.loading) { body.innerHTML = '<div class="option-skeleton"></div>'; return; }
+    if (state.weather.error) { body.innerHTML = `<p class="empty-note">${escapeHtml(state.weather.error)}</p>`; return; }
+    const data = state.weather.data;
+    const depart = departTime(); const arrive = depart + state.route.duration_ms;
+    const leaving = readingAt(data, depart); const arriving = readingAt(data, arrive);
+    const advice = tripAdvice({ weather: data, mode: state.mode, depart, arrive });
+    const better = driestDeparture({ weather: data, from: depart, durationMs: state.route.duration_ms });
+    // Each step shows its hour; the first step of each day also names the day.
+    let lastDay = new Date(depart).toDateString();
+    const strip = upcoming(data, depart).map((slot) => { const day = new Date(slot.time).toDateString(); const dayLabel = day !== lastDay ? new Date(slot.time).toLocaleDateString([], { weekday: 'short' }) : ''; lastDay = day; return `<li><span>${new Date(slot.time).toLocaleTimeString([], { hour: 'numeric' })}</span><em>${dayLabel}</em><i data-lucide="${conditionIcon(slot)}"></i><strong>${formatTemp(slot.temp_c, state.unit)}</strong><small>${rainChance(slot)}</small></li>`; }).join('');
+    body.innerHTML = `<div class="weather-pair">${weatherTile(state.departAt ? `Leaving ${whenText(depart)}` : 'Leaving now', leaving)}${weatherTile(`Arriving ${whenText(arrive)}`, arriving)}</div>`
+      + (advice.length ? `<ul class="weather-advice">${advice.map((item) => `<li class="${item.level}"><i data-lucide="${item.level === 'warn' ? 'triangle-alert' : 'info'}"></i><span>${escapeHtml(item.text)}</span></li>`).join('')}</ul>` : '')
+      + (better ? `<div class="weather-better"><span>Drier if you leave at <strong>${escapeHtml(whenText(better.time))}</strong> (${Math.round(better.pop * 100)}% chance of rain instead of ${Math.round(better.currentPop * 100)}%).</span><button type="button" class="chip-button" id="leaveLaterButton">Leave at ${escapeHtml(whenText(better.time))}</button></div>` : '')
+      + (strip ? `<ul class="weather-strip" aria-label="Forecast every 3 hours">${strip}</ul>` : '')
+      + '<p class="fine-print">Forecast by OpenWeatherMap, in 3-hour steps for up to 5 days.</p>';
+    $('#leaveLaterButton')?.addEventListener('click', () => setDeparture(better.time));
+    icons();
+  }
+
+  // Rain tag on Walk/Cycle options when rain is likely at departure.
+  const rainTag = (mode) => {
+    if (mode === 'car' || !state.weather?.data) return '';
+    const risk = rainRisk(readingAt(state.weather.data, departTime()));
+    return risk === 'heavy' || risk === 'likely' ? `<span class="option-tag rain"><i data-lucide="umbrella"></i>${risk === 'heavy' ? 'Heavy rain' : 'Rain likely'}</span>` : '';
+  };
+
+  // menuValue keeps the Leave menu on the option the user picked; other times show "Pick a time".
+  function setDeparture(time, menuValue = null) {
+    state.departAt = time;
+    const select = $('#departSelect'); const custom = $('#departCustom');
+    if (time === null) { select.value = 'now'; custom.hidden = true; }
+    else if (menuValue) { select.value = menuValue; custom.hidden = true; }
+    else { select.value = 'custom'; custom.hidden = false; custom.value = toLocalInput(time); }
+    if (state.route) { renderSummary(); renderWeather(); }
+    if (state.comparison) renderComparison();
+  }
+
+  const toLocalInput = (time) => { const d = new Date(time); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+
+  function departureFromMenu(value) {
+    if (value === 'now') return null;
+    const now = new Date();
+    if (value.startsWith('tomorrow-')) { const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, Number(value.split('-')[1]), 0); return d.getTime(); }
+    // "In N hours", rounded to the next quarter hour.
+    const d = new Date(now.getTime() + Number(value) * 3600000); d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15, 0, 0); return d.getTime();
   }
 
   /* ---------- Alternative routes ---------- */
@@ -386,7 +470,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
   function showRoute(route) {
     state.route = route;
     drawRoute(state.route, state.origin, state.destination);
-    renderSummary(); renderDirections(); renderFuel(); loadAlternatives();
+    renderSummary(); renderDirections(); renderFuel(); loadAlternatives(); loadWeather();
     recordTrip({ origin: state.origin, destination: state.destination, mode: state.mode, route });
     renderSaved();
     setStatus('Route found.', 'success');
@@ -488,7 +572,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
   function updateUnit(unit) {
     state.unit = unit; localStorage.setItem('maply-unit', unit);
     $$('[data-unit]').forEach((button) => button.classList.toggle('selected', button.dataset.unit === unit));
-    if (state.route) { renderSummary(); renderDirections(); renderFuel(); renderAlternatives(); }
+    if (state.route) { renderSummary(); renderDirections(); renderFuel(); renderAlternatives(); renderWeather(); }
     if (state.comparison) renderComparison();
   }
 
@@ -502,6 +586,20 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
   $('#fuelEfficiency').value = localStorage.getItem('maply-fuel-efficiency') || '12';
   updateUnit(state.unit);
 
+  $('#departSelect').addEventListener('change', (event) => {
+    const custom = $('#departCustom');
+    if (event.target.value === 'custom') {
+      custom.hidden = false;
+      custom.min = toLocalInput(Date.now()); custom.max = toLocalInput(Date.now() + 5 * 24 * 3600000);
+      custom.value = toLocalInput(state.departAt ?? Date.now()); custom.focus();
+      return;
+    }
+    setDeparture(departureFromMenu(event.target.value), event.target.value);
+  });
+  $('#departCustom').addEventListener('change', (event) => {
+    const time = new Date(event.target.value).getTime();
+    if (Number.isFinite(time)) setDeparture(time < Date.now() ? null : time);
+  });
   $('#routeForm').addEventListener('submit', (event) => { event.preventDefault(); findRoutes(); });
   $('#compareButton').addEventListener('click', compareModes);
   $('#swapButton').addEventListener('click', () => {

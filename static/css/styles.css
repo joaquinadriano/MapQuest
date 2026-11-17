@@ -410,3 +410,39 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 3px s
 .option.alternative { grid-template-columns: 44px 1fr auto; }
 .route-swatch { width: 44px; height: 8px; border-radius: 4px; background: #8f978d; justify-self: center; }
 .route-swatch.active { background: var(--green); }
+
+/* ---------- Weather planning ---------- */
+
+.depart-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: #fff; font-size: 14px; font-weight: 800; flex-wrap: wrap; }
+.depart-row svg { width: 18px; height: 18px; }
+.depart-row select, .depart-row input { height: 36px; border: 0; border-radius: 18px; padding: 0 12px; background: rgb(255 255 255 / 0.22); color: #fff; font-size: 14px; font-weight: 800; }
+.depart-row select option { color: var(--ink); }
+.depart-row input { color-scheme: dark; }
+.depart-row select:focus-visible, .depart-row input:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+
+.weather-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.weather-tile { display: flex; flex-direction: column; gap: 2px; padding: 12px; border-radius: var(--radius-sm); background: var(--canvas); }
+.weather-label { font-size: 12px; font-weight: 800; color: var(--muted); }
+.weather-main { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.weather-main svg { width: 26px; height: 26px; color: var(--ink); }
+.weather-main strong { font-size: 26px; font-weight: 900; letter-spacing: -0.02em; }
+.weather-desc { font-size: 13px; font-weight: 700; }
+.weather-rain { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.weather-rain svg { width: 13px; height: 13px; }
+
+.weather-advice { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 6px; }
+.weather-advice li { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--green-tint); font-size: 14px; font-weight: 700; }
+.weather-advice li.warn { background: #fdecea; color: #8c1d18; }
+.weather-advice svg { width: 18px; height: 18px; flex: none; margin-top: 1px; }
+
+.weather-better { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 10px; padding: 12px; border-radius: var(--radius-sm); border: 2px dashed var(--green); font-size: 14px; font-weight: 700; }
+.weather-better .chip-button { height: 32px; padding: 0 14px; border-radius: 999px; background: var(--green); color: #fff; font-size: 13px; font-weight: 800; }
+
+.weather-strip { list-style: none; padding: 0; margin: 12px 0 0; display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; text-align: center; }
+.weather-strip li { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 0; border-radius: var(--radius-sm); font-size: 12px; font-weight: 700; color: var(--muted); }
+.weather-strip svg { width: 20px; height: 20px; color: var(--ink); }
+.weather-strip strong { font-size: 14px; color: var(--ink); }
+
+.option-tag.rain { display: inline-flex; align-items: center; gap: 3px; color: #1f5fa8; background: #e6f0fb; }
+.option-tag.rain svg { width: 12px; height: 12px; }
+.weather-strip em { min-height: 14px; font-style: normal; font-size: 11px; font-weight: 900; color: var(--green-strong); }

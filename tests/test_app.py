@@ -15,6 +15,7 @@ import app as maply
 from routes import api as routes_api
 from services import graphhopper_service as gh
 from services.graphhopper_service import ServiceError
+from services import weather_service as ws
 
 
 # Helper: instead of calling the real GraphHopper API, the tests hand the app
@@ -492,6 +493,112 @@ class AlternativeRouteTests(unittest.TestCase):
         # 10 requests x 2 credits uses the whole budget of 20 per minute.
         self.assertEqual(statuses[:10], [200] * 10)
         self.assertEqual(statuses[10], 429)
+
+
+def owm_entry(dt, temp=30.0, code=800, pop=None, rain=None, icon="01d"):
+    """An OpenWeatherMap reading as the API returns it."""
+    entry = {"dt": dt, "main": {"temp": temp, "feels_like": temp + 4, "humidity": 70},
+             "weather": [{"id": code, "main": "Rain" if code < 700 else "Clear", "description": "light rain" if code < 700 else "clear sky", "icon": icon}],
+             "wind": {"speed": 5}}
+    if pop is not None:
+        entry["pop"] = pop
+    if rain is not None:
+        entry["rain"] = rain
+    return entry
+
+
+# Weather planning: OpenWeatherMap current weather and 3-hour forecast.
+@patch.object(ws, "OPENWEATHER_KEY", "test-key")
+class WeatherServiceTests(unittest.TestCase):
+    def setUp(self):
+        ws.clear_cache()
+
+    def answer(self, session, current=None, forecast=None):
+        responses = {
+            "weather": fake_response(payload=current or owm_entry(1_800_000_000) | {"name": "Makati"}),
+            "forecast": fake_response(payload=forecast or {"city": {"name": "Makati City"}, "list": [
+                owm_entry(1_800_010_800, code=500, pop=0.8, rain={"3h": 2.4}),
+                owm_entry(1_800_021_600, pop=0.1, icon="01n"),
+            ]}),
+        }
+        session.get.side_effect = lambda url, **_kwargs: responses[url.rsplit("/", 1)[1]]
+
+    @patch.object(ws, "session")
+    def test_reads_current_weather_and_forecast(self, session):
+        self.answer(session)
+        data = ws.weather_for(14.5547, 121.0244)
+        self.assertEqual(data["place"], "Makati City")
+        self.assertEqual(data["current"]["time"], 1_800_000_000_000)
+        self.assertEqual(data["current"]["feels_like_c"], 34.0)
+        self.assertEqual(data["current"]["wind_kph"], 18.0)
+        self.assertEqual(data["current"]["pop"], 0)
+        rainy, night = data["forecast"]
+        self.assertEqual((rainy["code"], rainy["pop"], rainy["rain_mm"]), (500, 0.8, 2.4))
+        self.assertEqual(rainy["description"], "Light rain")
+        self.assertFalse(night["is_day"])
+
+    @patch.object(ws, "session")
+    def test_raining_now_counts_as_certain_rain(self, session):
+        self.answer(session, current=owm_entry(1_800_000_000, code=501, rain={"1h": 3.1}))
+        current = ws.weather_for(14.55, 121.02)["current"]
+        self.assertEqual((current["pop"], current["rain_mm"]), (1, 3.1))
+
+    @patch.object(ws, "session")
+    def test_asks_for_metric_units_with_the_key(self, session):
+        self.answer(session)
+        ws.weather_for(14.5547, 121.0244)
+        params = session.get.call_args.kwargs["params"]
+        self.assertEqual((params["units"], params["appid"], params["lat"], params["lon"]), ("metric", "test-key", 14.5547, 121.0244))
+
+    @patch.object(ws, "session")
+    def test_nearby_requests_reuse_the_cached_answer(self, session):
+        self.answer(session)
+        ws.weather_for(14.5547, 121.0244)
+        ws.weather_for(14.5560, 121.0250)  # a few hundred metres away
+        self.assertEqual(session.get.call_count, 2, "one current + one forecast call, then cached")
+
+    @patch.object(ws, "session")
+    def test_rejected_key_explains_activation_delay(self, session):
+        session.get.return_value = fake_response(401, {"message": "Invalid API key"})
+        with self.assertRaises(ServiceError) as ctx:
+            ws.weather_for(14.55, 121.02)
+        self.assertEqual(ctx.exception.status, 503)
+        self.assertIn("OPENWEATHER_API_KEY", str(ctx.exception))
+
+    @patch.object(ws, "session")
+    def test_rate_limit_and_outage_errors(self, session):
+        session.get.return_value = fake_response(429, {})
+        with self.assertRaises(ServiceError) as ctx:
+            ws.weather_for(14.55, 121.02)
+        self.assertEqual(ctx.exception.status, 429)
+        session.get.side_effect = requests.ConnectionError("offline")
+        with self.assertRaises(ServiceError) as ctx:
+            ws.weather_for(14.60, 121.00)
+        self.assertIn("Check your connection", str(ctx.exception))
+
+    def test_endpoint_returns_weather_for_a_place(self):
+        client = maply.app.test_client()
+        with patch.object(routes_api, "weather_for", return_value={"current": {}, "forecast": [], "place": "Makati"}) as weather:
+            response = client.get("/api/weather?lat=14.5547&lng=121.0244")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["place"], "Makati")
+        weather.assert_called_once_with(14.5547, 121.0244)
+
+    def test_endpoint_rejects_bad_or_outside_places(self):
+        client = maply.app.test_client()
+        with patch.object(routes_api, "weather_for") as weather:
+            self.assertEqual(client.get("/api/weather?lat=abc&lng=121").status_code, 400)
+            self.assertEqual(client.get("/api/weather?lat=10.3&lng=123.9").status_code, 400)
+        weather.assert_not_called()
+
+
+class WeatherNotConfiguredTests(unittest.TestCase):
+    @patch.object(ws, "OPENWEATHER_KEY", "")
+    def test_missing_key_returns_503_with_setup_hint(self):
+        ws.clear_cache()
+        response = maply.app.test_client().get("/api/weather?lat=14.5547&lng=121.0244")
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("OPENWEATHER_API_KEY", response.json["error"])
 
 
 class ApiErrorTests(unittest.TestCase):
