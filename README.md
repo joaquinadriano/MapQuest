@@ -12,7 +12,9 @@ Maply turns the original GraphHopper-powered command-line route finder into a re
 - Mode comparison with per-profile error reporting.
 - Metric/imperial display preference saved in this browser.
 - Driving fuel estimate in PHP, with editable price and km/L efficiency.
-- Recent trips stored in browser `localStorage`; no account or database required.
+- Saved places: star a start or destination to save it as Home, Work, School or a named place. Saved places appear when you tap an empty search box and can be used as a start or destination in one tap.
+- Trip history: the last 50 trips with mode, distance and time, grouped by day, with search, weekly totals, one-tap re-planning and delete/clear.
+- Saved places and history are stored in this browser's `localStorage`; no account or database required.
 - Responsive mobile bottom sheet and desktop route-planning sidebar.
 
 ## Technology
@@ -134,6 +136,12 @@ Run the unit and endpoint tests with:
 
 ```powershell
 python -m unittest discover -s tests -v
+```
+
+Run the JavaScript tests (saved places and trip history) with Node.js 20 or newer:
+
+```powershell
+node --test "tests/js/*.test.mjs"
 ```
 
 The tests mock external services and do not consume API credits. A live route search also requires valid GraphHopper credentials and network access.

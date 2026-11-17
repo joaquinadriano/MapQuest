@@ -45,3 +45,22 @@ jobs:
 
       - name: Run unit and endpoint tests
         run: python -m unittest discover -s tests -v
+
+  frontend:
+    name: Frontend (JavaScript)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Check JavaScript syntax
+        run: |
+          for file in static/js/*.js; do node --input-type=module --check < "$file"; done
+
+      - name: Run JavaScript tests
+        run: node --test "tests/js/*.test.mjs"
