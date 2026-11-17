@@ -11,6 +11,10 @@
   const modes = { car: { name: 'Drive', verb: 'Driving', icon: 'car-front' }, bike: { name: 'Cycle', verb: 'Cycling', icon: 'bike' }, foot: { name: 'Walk', verb: 'Walking', icon: 'footprints' } };
   if (!modes[state.mode]) state.mode = 'car';
   const GREEN = '#37ab2f';
+  // Maply covers Metro Manila only; keep the map near it (with some room around the edges).
+  const METRO_MANILA = { minLat: 14.34, maxLat: 14.79, minLng: 120.90, maxLng: 121.14 };
+  const METRO_MANILA_VIEW = [[120.70, 14.20], [121.35, 14.95]];
+  const inMetroManila = ([lng, lat]) => lat >= METRO_MANILA.minLat && lat <= METRO_MANILA.maxLat && lng >= METRO_MANILA.minLng && lng <= METRO_MANILA.maxLng;
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
   const icons = () => window.lucide?.createIcons();
   const setStatus = (message = '', type = '') => { const el = $('#statusMessage'); el.textContent = message; el.className = `status-message ${type}`; };
@@ -37,7 +41,7 @@
     const token = document.body.dataset.mapboxToken?.trim();
     if (!token) return;
     mapboxgl.accessToken = token;
-    state.map = new mapboxgl.Map({ container: 'map', style: 'mapbox://styles/mapbox/standard', center: [120.9842, 14.5995], zoom: 12, attributionControl: true });
+    state.map = new mapboxgl.Map({ container: 'map', style: 'mapbox://styles/mapbox/standard', center: [121.02, 14.58], zoom: 11, minZoom: 9.5, maxBounds: METRO_MANILA_VIEW, attributionControl: true });
     state.map.addControl(new mapboxgl.NavigationControl({ showCompass: true }), 'bottom-right');
     state.map.on('load', () => {
       state.mapReady = true;
@@ -294,7 +298,7 @@
             });
             list.appendChild(button);
           });
-          if (!suggestions.length) list.innerHTML = '<div class="suggestion"><span>No places found. Try a more specific search.</span></div>';
+          if (!suggestions.length) list.innerHTML = '<div class="suggestion"><span>No places found in Metro Manila. Try a more specific search.</span></div>';
           list.classList.add('open'); icons();
         } catch (error) { if (id === requestId) { list.innerHTML = `<div class="suggestion"><span>${escapeHtml(error.message)}</span></div>`; list.classList.add('open'); } }
       }, 320);
@@ -340,6 +344,7 @@
     if (!navigator.geolocation) { showToast('Location is not supported in this browser.'); return; }
     navigator.geolocation.getCurrentPosition((position) => {
       const point = [position.coords.longitude, position.coords.latitude];
+      if (!inMetroManila(point)) { showToast('You appear to be outside Metro Manila. Maply only covers Metro Manila.'); return; }
       if (state.userMarker) state.userMarker.remove();
       state.userMarker = new mapboxgl.Marker({ color: '#1a73e8' }).setLngLat(point).setPopup(new mapboxgl.Popup({ offset: 20 }).setText('You are here')).addTo(state.map);
       state.map.flyTo({ center: point, zoom: 15 });

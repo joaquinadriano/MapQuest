@@ -164,6 +164,23 @@ class MaplyEndpointTests(unittest.TestCase):
     def test_unknown_page_returns_404(self):
         self.assertEqual(self.client.get("/does-not-exist").status_code, 404)
 
+    # Maply is a Metro Manila app: routes outside it are refused before GraphHopper is called.
+    @patch.object(routes_api, "route_for")
+    def test_route_outside_metro_manila_is_rejected(self, route_for):
+        cebu = {"name": "Cebu City", "lat": 10.3157, "lng": 123.8854}
+        response = self.client.post("/api/route", json={"origin": self.origin, "destination": cebu, "mode": "car"})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Metro Manila", response.json["error"])
+        route_for.assert_not_called()
+
+    @patch.object(routes_api, "route_for")
+    def test_compare_outside_metro_manila_is_rejected(self, route_for):
+        baguio = {"name": "Baguio", "lat": 16.4023, "lng": 120.5960}
+        response = self.client.post("/api/compare", json={"origin": baguio, "destination": self.destination})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("starting point", response.json["error"])
+        route_for.assert_not_called()
+
     # The browser switches between Drive/Cycle/Walk using these routes, so it
     # never has to ask GraphHopper again after a search.
     @patch.object(routes_api, "route_for")
@@ -268,6 +285,30 @@ class GeocodeServiceTests(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["label"], "Manila, Manila, Philippines")
         self.assertEqual((results[0]["lat"], results[0]["lng"]), (14.6, 121.0))
+
+    @patch.object(gh, "session")
+    def test_only_metro_manila_places_are_suggested(self, session):
+        session.get.return_value = fake_response(payload={"hits": [
+            {"name": "SM City Manila", "city": "Manila", "state": "Metro Manila", "point": {"lat": 14.5898, "lng": 120.9831}},
+            # Inside the search box but in Rizal province, so it is dropped.
+            {"name": "Cainta", "state": "Rizal", "point": {"lat": 14.5780, "lng": 121.1163}},
+            # Outside the box entirely.
+            {"name": "Cebu City", "city": "Cebu City", "state": "Central Visayas", "point": {"lat": 10.3157, "lng": 123.8854}},
+            # No region given: kept because the city is in Metro Manila.
+            {"name": "Ayala Triangle", "city": "Makati", "point": {"lat": 14.5573, "lng": 121.0237}},
+        ]})
+        results = gh.geocode("SM")
+        self.assertEqual([place["name"] for place in results], ["SM City Manila", "Ayala Triangle"])
+
+    @patch.object(gh, "session")
+    def test_search_asks_graphhopper_for_metro_manila_only(self, session):
+        session.get.return_value = fake_response(payload={"hits": []})
+        gh.geocode("Manila")
+        params = session.get.call_args.kwargs["params"]
+        self.assertEqual(params["bbox"], "120.9,14.34,121.14,14.79")
+        self.assertEqual(params["point"], "14.5995,120.9842")
+        # GraphHopper's free plan rejects searches asking for more than 10 results.
+        self.assertLessEqual(params["limit"], 10)
 
     @patch.object(gh, "session")
     def test_unknown_location_returns_no_suggestions(self, session):

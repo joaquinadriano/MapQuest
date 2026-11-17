@@ -20,6 +20,45 @@ TIMEOUT = (4, 16)
 PROFILES = {"car": "car", "bike": "bike", "foot": "foot"}
 session = requests.Session()
 
+# Maply is a Metro Manila app. The box covers all 17 cities/municipalities of the
+# National Capital Region (plus small slivers of neighbouring provinces, which the
+# region check below removes from search results).
+METRO_MANILA_BBOX = {"min_lat": 14.34, "max_lat": 14.79, "min_lng": 120.90, "max_lng": 121.14}
+METRO_MANILA_CENTER = (14.5995, 120.9842)
+METRO_MANILA_REGIONS = {"metro manila", "national capital region", "ncr"}
+METRO_MANILA_CITIES = {
+    "caloocan", "las piñas", "las pinas", "makati", "malabon", "mandaluyong", "manila", "marikina",
+    "muntinlupa", "navotas", "parañaque", "paranaque", "pasay", "pasig", "pateros", "quezon city",
+    "san juan", "taguig", "valenzuela",
+}
+GEOCODE_MAX_LIMIT = 10
+OUTSIDE_AREA_MESSAGE ="Maply only covers Metro Manila. Choose a {label} inside Metro Manila."
+
+
+def in_metro_manila_box(lat: float, lng: float) -> bool:
+    box = METRO_MANILA_BBOX
+    return box["min_lat"] <= lat <= box["max_lat"] and box["min_lng"] <= lng <= box["max_lng"]
+
+
+def is_metro_manila_hit(hit: dict) -> bool:
+    """Keep a search result only if GraphHopper places it in Metro Manila."""
+    point = hit.get("point") or {}
+    if not in_metro_manila_box(point.get("lat", 0), point.get("lng", 0)):
+        return False
+    state = str(hit.get("state") or "").strip().lower()
+    if state:
+        return state in METRO_MANILA_REGIONS
+    # Some results have no region; fall back to the city name.
+    city = str(hit.get("city") or hit.get("name") or "").strip().lower()
+    return city.removesuffix(" city") in METRO_MANILA_CITIES or city in METRO_MANILA_CITIES
+
+
+def require_metro_manila(place: dict, label: str) -> dict:
+    """Reject route endpoints outside Metro Manila, even if sent directly to the API."""
+    if not in_metro_manila_box(place["lat"], place["lng"]):
+        raise ServiceError(OUTSIDE_AREA_MESSAGE.format(label=label.lower()), 400)
+    return place
+
 
 class ServiceError(Exception):
     def __init__(self, message: str, status: int = 502):
@@ -63,7 +102,15 @@ def geocode(query: str, limit: int = 5) -> list[dict]:
     try:
         response = session.get(
             f"{GRAPHHOPPER_URL}/geocode",
-            params={"q": query, "limit": limit, "key": GRAPHHOPPER_KEY},
+            params={
+                "q": query,
+                # Ask for extra results because places outside Metro Manila are filtered out
+                # below. GraphHopper's free plan allows at most 10.
+                "limit": min(limit * 2, GEOCODE_MAX_LIMIT),
+                "bbox": "{min_lng},{min_lat},{max_lng},{max_lat}".format(**METRO_MANILA_BBOX),
+                "point": "{},{}".format(*METRO_MANILA_CENTER),
+                "key": GRAPHHOPPER_KEY,
+            },
             timeout=TIMEOUT,
         )
     except requests.Timeout as exc:
@@ -74,7 +121,7 @@ def geocode(query: str, limit: int = 5) -> list[dict]:
     if not response.ok:
         raise api_error(response, "Location search failed.")
 
-    hits = response.json().get("hits", [])
+    hits = [hit for hit in response.json().get("hits", []) if hit.get("point") and is_metro_manila_hit(hit)]
     return [
         {
             "name": hit.get("name", query),
@@ -85,8 +132,7 @@ def geocode(query: str, limit: int = 5) -> list[dict]:
             "lng": hit["point"]["lng"],
             "country": hit.get("country", ""),
         }
-        for hit in hits
-        if hit.get("point")
+        for hit in hits[:limit]
     ]
 
 

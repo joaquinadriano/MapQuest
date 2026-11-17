@@ -1,10 +1,11 @@
 # Maply
 
-Maply turns the original GraphHopper-powered command-line route finder into a responsive browser app. Search for places, plan driving/cycling/walking routes, compare profile availability, review turn-by-turn directions, and estimate driving fuel costs. Serves as Final Exam Project for CCNA DevNet Associate
+Maply turns the original GraphHopper-powered command-line route finder into a responsive Metro Manila route planner. Search for places, plan driving/cycling/walking routes, compare profile availability, review turn-by-turn directions, and estimate driving fuel costs. Serves as Final Exam Project for CCNA DevNet Associate
 
 ## Features
 
 - GraphHopper geocoding suggestions and routing with real route geometry.
+- Built for Metro Manila: place search only suggests places in Metro Manila, and routes must start and end there.
 - Car, bike, and foot routing profiles. The app reports unavailable profiles without substituting another mode.
 - Interactive Mapbox GL JS map with Mapbox Standard and satellite styles, route line, start/end markers, current-location control, and route bounds.
 - Route distance, estimated duration, and turn-by-turn instructions.

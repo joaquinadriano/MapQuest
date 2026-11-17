@@ -7,7 +7,14 @@ from time import monotonic
 
 from flask import Blueprint, jsonify, request
 
-from services.graphhopper_service import PROFILES, ServiceError, clean_place, geocode, route_for
+from services.graphhopper_service import (
+    PROFILES,
+    ServiceError,
+    clean_place,
+    geocode,
+    require_metro_manila,
+    route_for,
+)
 
 api = Blueprint("api", __name__)
 _request_buckets: dict[str, deque] = defaultdict(deque)
@@ -56,8 +63,8 @@ def geocode_endpoint():
 @api.post("/api/route")
 def route_endpoint():
     body = request.get_json(silent=True) or {}
-    origin = clean_place(body.get("origin"), "Origin")
-    destination = clean_place(body.get("destination"), "Destination")
+    origin = require_metro_manila(clean_place(body.get("origin"), "Origin"), "Starting point")
+    destination = require_metro_manila(clean_place(body.get("destination"), "Destination"), "Destination")
 
     if abs(origin["lat"] - destination["lat"]) < 1e-6 and abs(origin["lng"] - destination["lng"]) < 1e-6:
         raise ServiceError("Origin and destination cannot be the same place.", 400)
@@ -86,8 +93,8 @@ def route_endpoint():
 @api.post("/api/compare")
 def compare_endpoint():
     body = request.get_json(silent=True) or {}
-    origin = clean_place(body.get("origin"), "Origin")
-    destination = clean_place(body.get("destination"), "Destination")
+    origin = require_metro_manila(clean_place(body.get("origin"), "Origin"), "Starting point")
+    destination = require_metro_manila(clean_place(body.get("destination"), "Destination"), "Destination")
 
     if abs(origin["lat"] - destination["lat"]) < 1e-6 and abs(origin["lng"] - destination["lng"]) < 1e-6:
         raise ServiceError("Origin and destination cannot be the same place.", 400)
