@@ -10,6 +10,7 @@ Maply turns the original GraphHopper-powered command-line route finder into a re
 - Interactive Mapbox GL JS map with Mapbox Standard and satellite styles, route line, start/end markers, current-location control, and route bounds.
 - Route distance, estimated duration, and turn-by-turn instructions.
 - Mode comparison with per-profile error reporting.
+- Alternative routes: up to three routes for the chosen mode, labelled by their main road (e.g. "via Taft Avenue"), shown in a list and as grey lines you can tap on the map.
 - Metric/imperial display preference saved in this browser.
 - Driving fuel estimate in PHP, with editable price and km/L efficiency.
 - Saved places: star a start or destination to save it as Home, Work, School or a named place. Saved places appear when you tap an empty search box and can be used as a start or destination in one tap.
@@ -128,7 +129,7 @@ In your browser, open [http://127.0.0.1:5000](http://127.0.0.1:5000). This addre
 - `POST /api/route` calculates the selected profile route. Returns meter distance, millisecond duration, coordinates, turn-by-turn instructions, and enriched metric/imperial summaries with fuel estimates.
 - `POST /api/compare` queries car, bike, and foot profiles concurrently using Python thread workers, returning profile availability and metrics.
 
-GraphHopper requests are made by the Flask server so the GraphHopper key is not sent to the browser. Mapbox GL JS loads Mapbox Standard in the browser using the public Mapbox token. Requests have connect/read timeouts, input validation, and a per-client in-memory limit of 20 weighted GraphHopper requests per minute (mode comparison counts as three).
+GraphHopper requests are made by the Flask server so the GraphHopper key is not sent to the browser. Mapbox GL JS loads Mapbox Standard in the browser using the public Mapbox token. Requests have connect/read timeouts, input validation, and a per-client in-memory limit of 20 weighted GraphHopper requests per minute (mode comparison counts as three, alternative routes as two).
 
 ## Testing
 

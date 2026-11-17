@@ -149,13 +149,8 @@ def clean_place(value: object, label: str) -> dict:
     return {"name": name, "lat": lat, "lng": lng}
 
 
-def route_for(
-    origin: dict,
-    destination: dict,
-    mode: str,
-    fuel_efficiency: float = 12.0,
-    fuel_price: float = 65.0,
-) -> dict:
+def _request_paths(origin: dict, destination: dict, mode: str, extra_params: list | None = None) -> list[dict]:
+    """Ask GraphHopper for one or more routes and return its raw paths."""
     require_api_key()
     if mode not in PROFILES:
         raise ServiceError("Choose driving, cycling, or walking.", 400)
@@ -172,6 +167,7 @@ def route_for(
         ("point", f'{origin["lat"]},{origin["lng"]}'),
         ("point", f'{destination["lat"]},{destination["lng"]}'),
     ])
+    params.extend(extra_params or [])
 
     try:
         response = session.get(f"{GRAPHHOPPER_URL}/route", params=params, timeout=TIMEOUT)
@@ -183,12 +179,13 @@ def route_for(
     if not response.ok:
         raise api_error(response, f"GraphHopper could not calculate a {mode} route.")
 
-    payload = response.json()
-    paths = payload.get("paths") or []
+    paths = response.json().get("paths") or []
     if not paths:
         raise ServiceError(f"No {mode} route was found for these locations.")
+    return paths
 
-    path = paths[0]
+
+def _parse_path(path: dict, mode: str, fuel_efficiency: float = 12.0, fuel_price: float = 65.0) -> dict:
     points = path.get("points", {}).get("coordinates", [])
     if not points:
         raise ServiceError("GraphHopper returned a route without map geometry.")
@@ -203,6 +200,7 @@ def route_for(
             "formatted_imperial": format_step_distance(step.get("distance", 0), "imperial"),
             "time": step.get("time", 0),
             "sign": step.get("sign", 0),
+            "street_name": step.get("street_name", ""),
         }
         for step in path.get("instructions", [])
     ]
@@ -226,3 +224,58 @@ def route_for(
         "points": path.get("points", {}).get("type", "LineString"),
     }
 
+
+def route_for(
+    origin: dict,
+    destination: dict,
+    mode: str,
+    fuel_efficiency: float = 12.0,
+    fuel_price: float = 65.0,
+) -> dict:
+    path = _request_paths(origin, destination, mode)[0]
+    return _parse_path(path, mode, fuel_efficiency, fuel_price)
+
+
+MAX_ALTERNATIVES = 3
+
+
+def route_alternatives(origin: dict, destination: dict, mode: str) -> list[dict]:
+    """Up to three different routes for one mode, fastest first, each labelled "via <main road>"."""
+    paths = _request_paths(origin, destination, mode, [
+        ("algorithm", "alternative_route"),
+        ("alternative_route.max_paths", str(MAX_ALTERNATIVES)),
+        # Allow routes up to 40% slower that share at most 60% of their roads with the best one.
+        ("alternative_route.max_weight_factor", "1.4"),
+        ("alternative_route.max_share_factor", "0.6"),
+    ])
+    routes = []
+    for path in paths[:MAX_ALTERNATIVES]:
+        try:
+            routes.append(_parse_path(path, mode))
+        except ServiceError:
+            continue  # Skip an alternative without map geometry rather than failing them all.
+    if not routes:
+        raise ServiceError("GraphHopper returned a route without map geometry.")
+    routes.sort(key=lambda route: route["duration_ms"])
+    for index, route in enumerate(routes):
+        route["label"] = route_label(route, [other for other in routes if other is not route]) or f"Route {index + 1}"
+    return routes
+
+
+def route_label(route: dict, others: list[dict]) -> str:
+    """Name a route after its longest road that the other routes don't use."""
+    def road_lengths(candidate: dict) -> dict[str, float]:
+        lengths: dict[str, float] = {}
+        for step in candidate["instructions"]:
+            name = (step.get("street_name") or "").strip()
+            if name:
+                lengths[name] = lengths.get(name, 0) + step.get("distance", 0)
+        return lengths
+
+    own = road_lengths(route)
+    used_elsewhere = {name for other in others for name in road_lengths(other)}
+    ranked = sorted(own.items(), key=lambda item: item[1], reverse=True)
+    for name, _length in ranked:
+        if name not in used_elsewhere:
+            return f"via {name}"
+    return f"via {ranked[0][0]}" if ranked else ""

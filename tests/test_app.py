@@ -411,6 +411,89 @@ class RouteServiceTests(unittest.TestCase):
 
 # When GraphHopper itself returns an error, the user should see a helpful
 # message (wrong key, too many requests) instead of a raw error.
+def fake_path(minutes, roads, distance=9000):
+    """A GraphHopper path that drives along the given (road name, metres) pairs."""
+    return {
+        "distance": distance, "time": minutes * 60000,
+        "points": {"type": "LineString", "coordinates": [[120.98, 14.59], [121.02, 14.55]]},
+        "instructions": [{"text": f"Continue onto {name}", "street_name": name, "distance": metres, "time": 1000, "sign": 0} for name, metres in roads],
+    }
+
+
+# Alternative routes: GraphHopper can return up to three different routes for one mode.
+@patch.object(gh, "GRAPHHOPPER_KEY", "test-key")
+class AlternativeRouteTests(unittest.TestCase):
+    origin = {"lat": 14.5895, "lng": 120.9747}
+    destination = {"lat": 14.5547, "lng": 121.0244}
+
+    @patch.object(gh, "session")
+    def test_returns_routes_fastest_first_with_road_labels(self, session):
+        session.get.return_value = fake_response(payload={"paths": [
+            fake_path(19, [("Pedro Gil Street", 1900), ("Ayala Avenue", 1200)]),
+            fake_path(15, [("Taft Avenue", 2200), ("Ayala Avenue", 1300)]),
+            fake_path(16, [("Roxas Boulevard", 3700), ("Ayala Avenue", 1300)]),
+        ]})
+        routes = gh.route_alternatives(self.origin, self.destination, "car")
+        self.assertEqual([route["duration_ms"] // 60000 for route in routes], [15, 16, 19])
+        # Ayala Avenue is shared by every route, so each is named after a road only it uses.
+        self.assertEqual([route["label"] for route in routes], ["via Taft Avenue", "via Roxas Boulevard", "via Pedro Gil Street"])
+
+    @patch.object(gh, "session")
+    def test_asks_graphhopper_for_alternatives(self, session):
+        session.get.return_value = fake_response(payload={"paths": [fake_path(15, [("Taft Avenue", 2200)])]})
+        gh.route_alternatives(self.origin, self.destination, "bike")
+        params = session.get.call_args.kwargs["params"]
+        self.assertIn(("algorithm", "alternative_route"), params)
+        self.assertIn(("alternative_route.max_paths", "3"), params)
+        self.assertIn(("profile", "bike"), params)
+
+    @patch.object(gh, "session")
+    def test_single_route_still_works(self, session):
+        session.get.return_value = fake_response(payload={"paths": [fake_path(15, [("Taft Avenue", 2200)])]})
+        routes = gh.route_alternatives(self.origin, self.destination, "car")
+        self.assertEqual(len(routes), 1)
+        self.assertEqual(routes[0]["label"], "via Taft Avenue")
+
+    @patch.object(gh, "session")
+    def test_route_without_road_names_gets_a_numbered_label(self, session):
+        session.get.return_value = fake_response(payload={"paths": [fake_path(15, [("", 2200)]), fake_path(17, [("", 900)])]})
+        self.assertEqual([route["label"] for route in gh.route_alternatives(self.origin, self.destination, "foot")], ["Route 1", "Route 2"])
+
+    @patch.object(gh, "session")
+    def test_skips_an_alternative_without_map_geometry(self, session):
+        broken = fake_path(16, [("Roxas Boulevard", 3700)])
+        broken["points"] = {"coordinates": []}
+        session.get.return_value = fake_response(payload={"paths": [fake_path(15, [("Taft Avenue", 2200)]), broken]})
+        self.assertEqual(len(gh.route_alternatives(self.origin, self.destination, "car")), 1)
+
+    def test_endpoint_returns_routes_for_the_chosen_mode(self):
+        reset_rate_limiter()
+        client = maply.app.test_client()
+        routes = [{"label": "via Taft Avenue", "distance_m": 9000, "duration_ms": 900000, "geometry": [], "instructions": []}]
+        with patch.object(routes_api, "route_alternatives", return_value=routes) as alternatives:
+            response = client.post("/api/alternatives", json={"origin": self.origin, "destination": self.destination, "mode": "bike"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["routes"], routes)
+        self.assertEqual(alternatives.call_args.args[2], "bike")
+
+    def test_endpoint_rejects_places_outside_metro_manila(self):
+        reset_rate_limiter()
+        client = maply.app.test_client()
+        with patch.object(routes_api, "route_alternatives") as alternatives:
+            response = client.post("/api/alternatives", json={"origin": {"lat": 10.3, "lng": 123.9}, "destination": self.destination})
+        self.assertEqual(response.status_code, 400)
+        alternatives.assert_not_called()
+
+    def test_endpoint_counts_two_credits_against_the_rate_limit(self):
+        reset_rate_limiter()
+        client = maply.app.test_client()
+        with patch.object(routes_api, "route_alternatives", return_value=[]):
+            statuses = [client.post("/api/alternatives", json={"origin": self.origin, "destination": self.destination}).status_code for _ in range(11)]
+        # 10 requests x 2 credits uses the whole budget of 20 per minute.
+        self.assertEqual(statuses[:10], [200] * 10)
+        self.assertEqual(statuses[10], 429)
+
+
 class ApiErrorTests(unittest.TestCase):
     def test_invalid_key_message(self):
         error = gh.api_error(fake_response(401, {"message": "Wrong credentials"}), "fallback")
