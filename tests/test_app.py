@@ -1,21 +1,21 @@
 import unittest
 from unittest.mock import patch
 
-import app as mapquest
+import app as maply
 from routes import api as routes_api
 from services.graphhopper_service import ServiceError
 
 
-class MapQuestEndpointTests(unittest.TestCase):
+class MaplyEndpointTests(unittest.TestCase):
     def setUp(self):
-        self.client = mapquest.app.test_client()
+        self.client = maply.app.test_client()
         self.origin = {"name": "Manila", "lat": 14.5995, "lng": 120.9842}
         self.destination = {"name": "Makati", "lat": 14.5547, "lng": 121.0244}
 
     def test_home_page_loads_the_planner(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"MapQuest", response.data)
+        self.assertIn(b"Maply", response.data)
 
     @patch.object(routes_api, "geocode", return_value=[{"name": "Manila", "label": "Manila, Philippines", "lat": 14.5995, "lng": 120.9842, "country": "Philippines"}])
     def test_geocode_returns_suggestions(self, _geocode):
@@ -50,6 +50,20 @@ class MapQuestEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual([item["available"] for item in response.json["comparison"]], [True, False, True])
         self.assertEqual(response.json["comparison"][1]["error"], "Bike profile unavailable")
+
+    @patch.object(routes_api, "route_for")
+    def test_compare_returns_full_routes_so_modes_switch_without_new_requests(self, route_for):
+        car_route = {"mode": "car", "distance_m": 5200, "duration_ms": 780000, "geometry": [[14.59, 120.98], [14.55, 121.02]], "instructions": []}
+        route_for.side_effect = [car_route, ServiceError("Bike profile unavailable"), {**car_route, "mode": "foot"}]
+        response = self.client.post("/api/compare", json={"origin": self.origin, "destination": self.destination})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(route_for.call_count, 3)
+        comparison = response.json["comparison"]
+        self.assertEqual(comparison[0]["route"], car_route)
+        self.assertNotIn("route", comparison[1])
+        self.assertEqual(comparison[2]["route"]["mode"], "foot")
+        self.assertEqual(response.json["origin"]["name"], "Manila")
+        self.assertEqual(response.json["destination"]["name"], "Makati")
 
 
 if __name__ == "__main__":

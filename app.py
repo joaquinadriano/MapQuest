@@ -1,4 +1,4 @@
-"""MapQuest Flask application factory and HTML entry point."""
+"""Maply Flask application factory and HTML entry point."""
 
 import os
 

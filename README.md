@@ -1,6 +1,6 @@
-# MapQuest
+# Maply
 
-MapQuest turns the original GraphHopper-powered command-line route finder into a responsive browser app. Search for places, plan driving/cycling/walking routes, compare profile availability, review turn-by-turn directions, and estimate driving fuel costs.
+Maply turns the original GraphHopper-powered command-line route finder into a responsive browser app. Search for places, plan driving/cycling/walking routes, compare profile availability, review turn-by-turn directions, and estimate driving fuel costs.
 
 ## Features
 
@@ -58,7 +58,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-A virtual environment keeps MapQuest's Python packages separate from system Python and other projects. Activate it again whenever you open a new terminal to work on MapQuest.
+A virtual environment keeps Maply's Python packages separate from system Python and other projects. Activate it again whenever you open a new terminal to work on Maply.
 
 ### 4. Install Python dependencies
 
@@ -97,7 +97,7 @@ The GraphHopper key stays on the Flask server and is not sent to the browser. Ma
 
 If the Mapbox token is missing, the server can still calculate routes, but the map displays setup instructions. GraphHopper credentials are required for place search and route calculations.
 
-### 6. Start MapQuest
+### 6. Start Maply
 
 From the project directory with the virtual environment active, run:
 

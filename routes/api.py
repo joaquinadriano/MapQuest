@@ -30,7 +30,7 @@ def limit_graphhopper_requests():
             bucket.popleft()
         used = sum(weight for _timestamp, weight in bucket)
         if used + cost > _GRAPHOPPER_CREDIT_BUDGET:
-            raise ServiceError("MapQuest is limiting route searches for a moment. Please wait a minute and try again.", 429)
+            raise ServiceError("Maply is limiting route searches for a moment. Please wait a minute and try again.", 429)
         bucket.append((now, cost))
     return None
 
@@ -59,10 +59,11 @@ def compare_endpoint():
     for mode in PROFILES:
         try:
             result = route_for(origin, destination, mode)
-            results.append({"mode": mode, "available": True, "distance_m": result["distance_m"], "duration_ms": result["duration_ms"]})
+            # Include the full route so the browser can switch modes without another billable request.
+            results.append({"mode": mode, "available": True, "distance_m": result["distance_m"], "duration_ms": result["duration_ms"], "route": result})
         except ServiceError as exc:
             results.append({"mode": mode, "available": False, "error": str(exc)})
-    return jsonify({"comparison": results})
+    return jsonify({"comparison": results, "origin": origin, "destination": destination})
 
 
 @api.errorhandler(ServiceError)

@@ -22,7 +22,7 @@ class ServiceError(Exception):
 
 def require_api_key() -> None:
     if not GRAPHHOPPER_KEY:
-        raise ServiceError("GraphHopper is not configured. Add GRAPHHOPPER_API_KEY to your .env file and restart MapQuest.", 503)
+        raise ServiceError("GraphHopper is not configured. Add GRAPHHOPPER_API_KEY to your .env file and restart Maply.", 503)
 
 
 def api_error(response: requests.Response, fallback: str) -> ServiceError:
