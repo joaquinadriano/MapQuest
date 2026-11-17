@@ -1,3 +1,5 @@
+import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPlaces, historyStats, recentTrips, recordTrip, removePlace, removeTrip, savePlace } from './store.js';
+
 (() => {
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -117,7 +119,17 @@
     const list = $('#directionsList'); list.innerHTML = '';
     const steps = state.route.instructions.filter((step) => step.text && step.text.toLowerCase() !== 'finish');
     $('#instructionCount').textContent = steps.length ? `${steps.length} steps` : '';
-    const stop = (place, end = false) => { const li = document.createElement('li'); li.className = `timeline-stop${end ? ' end' : ''}`; li.innerHTML = `<span class="timeline-node"></span><span class="timeline-place">${escapeHtml(place.name)}</span><span></span>`; return li; };
+    const stop = (place, end = false) => {
+      const li = document.createElement('li'); li.className = `timeline-stop${end ? ' end' : ''}`;
+      const saved = findSavedPlace(place);
+      li.innerHTML = `<span class="timeline-node"></span><span class="timeline-place">${saved ? `<span class="saved-tag">${escapeHtml(saved.label)}</span>` : ''}${escapeHtml(place.name)}</span>`;
+      const star = document.createElement('button'); star.type = 'button'; star.className = `star-button${saved ? ' saved' : ''}`;
+      star.setAttribute('aria-label', saved ? `Edit saved place ${saved.label}` : `Save ${place.name}`);
+      star.title = saved ? 'Edit saved place' : 'Save this place';
+      star.innerHTML = '<i data-lucide="star"></i>';
+      star.addEventListener('click', () => openPlaceDialog(place, saved || null));
+      li.appendChild(star); return li;
+    };
     list.appendChild(stop(state.origin));
     if (!steps.length) { const li = document.createElement('li'); li.className = 'direction-item'; li.innerHTML = '<span></span><span class="direction-text">No turn-by-turn instructions came back for this route.</span><span></span>'; list.appendChild(li); }
     steps.forEach((step) => {
@@ -176,33 +188,129 @@
     $$('.option').forEach((option) => { const active = option.dataset.mode === state.mode; option.classList.toggle('selected', active); option.setAttribute('aria-pressed', String(active)); });
   }
 
-  /* ---------- Recent trips ---------- */
+  /* ---------- Saved places ---------- */
 
-  function getStored(key) { try { const value = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(value) ? value : []; } catch { return []; } }
+  const kindIcon = (item) => PLACE_KINDS[item.kind]?.icon || 'star';
 
-  function renderSaved() {
-    localStorage.removeItem('maply-favorites');
-    const history = getStored('maply-history');
-    $('#historyList').innerHTML = history.length ? '' : '<p class="empty-note">Routes you plan will be listed here.</p>';
-    history.slice(0, 6).forEach((entry) => $('#historyList').appendChild(savedRow(entry)));
+  function renderPlaces() {
+    const list = $('#placesList'); list.innerHTML = '';
+    const places = getPlaces();
+    if (!places.length) {
+      list.innerHTML = '<p class="empty-note">Save places like Home or Work with the star next to a start or destination. They will show up when you tap a search box.</p>';
+      return;
+    }
+    places.forEach((item) => {
+      const row = document.createElement('div'); row.className = 'saved-item';
+      const go = document.createElement('button'); go.type = 'button'; go.title = `Directions to ${item.label}`;
+      go.innerHTML = `<span class="saved-icon kind-${item.kind}"><i data-lucide="${kindIcon(item)}"></i></span><span class="saved-route"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.place.name)}</small></span>`;
+      go.addEventListener('click', () => useSavedPlace(item, 'destination'));
+      const from = document.createElement('button'); from.type = 'button'; from.className = 'chip-button'; from.textContent = 'From here';
+      from.setAttribute('aria-label', `Start from ${item.label}`);
+      from.addEventListener('click', () => useSavedPlace(item, 'origin'));
+      const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'delete-saved'; edit.setAttribute('aria-label', `Edit ${item.label}`); edit.innerHTML = '<i data-lucide="pencil"></i>';
+      edit.addEventListener('click', () => openPlaceDialog(item.place, item));
+      row.append(go, from, edit); list.appendChild(row);
+    });
     icons();
   }
 
-  function savedRow(entry) {
+  // Fill one end of the trip with a saved place; plan the route when both ends are set.
+  function useSavedPlace(item, which) {
+    setPlace(which, { ...item.place });
+    setStatus();
+    const other = which === 'origin' ? 'destination' : 'origin';
+    if (state[other]) findRoutes();
+    else { $(`#${other}Input`).focus(); if (isMobile()) $('#sidebar').classList.remove('collapsed'); }
+  }
+
+  let editingPlace = null;
+  function openPlaceDialog(place, existing = null) {
+    editingPlace = { place, existing };
+    const form = $('#placeForm');
+    $('#placeDialogTitle').textContent = existing ? 'Edit saved place' : 'Save place';
+    $('#placeDialogAddress').textContent = place.name;
+    $('#placeLabel').value = existing?.label || '';
+    form.kind.value = existing?.kind || 'other';
+    $('#removePlaceButton').hidden = !existing;
+    $('#placeDialog').showModal();
+    $('#placeLabel').focus();
+  }
+
+  function savePlaceFromDialog() {
+    if (!editingPlace) return;
+    const kind = $('#placeForm').kind.value;
+    const label = $('#placeLabel').value.trim() || PLACE_KINDS[kind].label;
+    const saved = savePlace({ id: editingPlace.existing?.id, label, kind, place: editingPlace.place });
+    showToast(`Saved ${saved.label}.`);
+    editingPlace = null;
+    renderPlaces(); if (state.route) renderDirections();
+  }
+
+  function savedPlaceSuggestions(which, list) {
+    const places = getPlaces();
+    if (!places.length) return false;
+    list.innerHTML = '<div class="suggestion-heading">Saved places</div>';
+    places.slice(0, 6).forEach((item) => {
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'suggestion'; button.setAttribute('role', 'option');
+      button.innerHTML = `<i data-lucide="${kindIcon(item)}"></i><span>${escapeHtml(item.label)}<small>${escapeHtml(item.place.name)}</small></span>`;
+      button.addEventListener('click', () => { list.classList.remove('open'); useSavedPlace(item, which); });
+      list.appendChild(button);
+    });
+    list.classList.add('open'); icons();
+    return true;
+  }
+
+  /* ---------- Trip history ---------- */
+
+  function historyRow(trip, { showTime = false } = {}) {
     const row = document.createElement('div'); row.className = 'saved-item';
     const label = document.createElement('button'); label.type = 'button'; label.title = 'Plan this route again';
-    label.innerHTML = `<span class="saved-icon"><i data-lucide="${modes[entry.mode]?.icon || 'clock'}"></i></span><span class="saved-route"><strong>${escapeHtml(entry.destination.name)}</strong><small>From ${escapeHtml(entry.origin.name)}</small></span>`;
-    label.addEventListener('click', () => { setPlace('origin', entry.origin); setPlace('destination', entry.destination); if (modes[entry.mode]) state.mode = entry.mode; findRoutes(); });
-    const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'delete-saved'; remove.setAttribute('aria-label', `Remove trip to ${entry.destination.name}`); remove.innerHTML = '<i data-lucide="x"></i>';
-    remove.addEventListener('click', () => { localStorage.setItem('maply-history', JSON.stringify(getStored('maply-history').filter((item) => item.id !== entry.id))); renderSaved(); });
+    const details = [showTime ? new Date(trip.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : `From ${trip.origin.name}`];
+    if (showTime) details.push(`from ${trip.origin.name}`);
+    const stats = trip.distance_m ? `<span class="trip-stats">${formatDistance(trip.distance_m)}${trip.duration_ms ? `, ${durationParts(trip.duration_ms).value} ${durationParts(trip.duration_ms).unit}` : ''}</span>` : '';
+    label.innerHTML = `<span class="saved-icon"><i data-lucide="${modes[trip.mode]?.icon || 'clock'}"></i></span><span class="saved-route"><strong>${escapeHtml(trip.destination.name)}</strong><small>${escapeHtml(details.join(', '))}</small>${stats}</span>`;
+    label.addEventListener('click', () => {
+      $('#historyDialog').close();
+      setPlace('origin', trip.origin); setPlace('destination', trip.destination);
+      if (modes[trip.mode]) state.mode = trip.mode;
+      findRoutes();
+    });
+    const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'delete-saved'; remove.setAttribute('aria-label', `Remove trip to ${trip.destination.name}`); remove.innerHTML = '<i data-lucide="x"></i>';
+    remove.addEventListener('click', () => { removeTrip(trip.id); renderSaved(); if ($('#historyDialog').open) renderHistoryDialog(); });
     row.append(label, remove); return row;
   }
 
-  function rememberTrip() {
-    const trip = { id: crypto.randomUUID(), origin: state.origin, destination: state.destination, mode: state.mode, createdAt: Date.now() };
-    const history = getStored('maply-history').filter((item) => item.origin.name !== trip.origin.name || item.destination.name !== trip.destination.name);
-    localStorage.setItem('maply-history', JSON.stringify([trip, ...history].slice(0, 10)));
-    renderSaved();
+  function renderSaved() {
+    localStorage.removeItem('maply-favorites');
+    const trips = recentTrips(3); const total = getHistory().length;
+    $('#historyList').innerHTML = trips.length ? '' : '<p class="empty-note">Routes you plan will be listed here.</p>';
+    trips.forEach((trip) => $('#historyList').appendChild(historyRow(trip)));
+    $('#openHistoryButton').textContent = total ? `See all (${total})` : 'See all';
+    $('#openHistoryButton').disabled = !total;
+    icons();
+  }
+
+  function renderHistoryDialog() {
+    const query = $('#historySearch').value.trim().toLowerCase();
+    const all = getHistory();
+    const trips = query ? all.filter((trip) => `${trip.origin.name} ${trip.destination.name}`.toLowerCase().includes(query)) : all;
+    const week = historyStats(all);
+    $('#historyStats').textContent = week.trips ? `This week: ${week.trips} trip${week.trips === 1 ? '' : 's'}${week.distance_m ? `, ${formatDistance(week.distance_m)} in total` : ''}.` : 'No trips in the last 7 days.';
+    const groups = $('#historyGroups'); groups.innerHTML = '';
+    if (!trips.length) { groups.innerHTML = `<p class="empty-note">${query ? 'No trips match that search.' : 'Routes you plan will be listed here.'}</p>`; }
+    let current = null; let list = null;
+    trips.forEach((trip) => {
+      const day = dayLabel(trip.createdAt || Date.now());
+      if (day !== current) {
+        current = day;
+        const heading = document.createElement('h3'); heading.className = 'history-day'; heading.textContent = day;
+        list = document.createElement('div'); list.className = 'saved-list';
+        groups.append(heading, list);
+      }
+      list.appendChild(historyRow(trip, { showTime: true }));
+    });
+    $('#clearHistoryButton').disabled = !all.length;
+    icons();
   }
 
   function setPlace(which, place) { state[which] = place; $(`#${which === 'origin' ? 'originInput' : 'destinationInput'}`).value = place.name; }
@@ -213,7 +321,8 @@
     state.route = route;
     drawRoute(state.route, state.origin, state.destination);
     renderSummary(); renderDirections(); renderFuel();
-    rememberTrip();
+    recordTrip({ origin: state.origin, destination: state.destination, mode: state.mode, route });
+    renderSaved();
     setStatus('Route found.', 'success');
     // On phones, slide the panel away so the route is visible on the map.
     $('#expandSheet span').textContent = 'Show route details';
@@ -280,8 +389,11 @@
 
   function setupAutocomplete(inputId, listId, which) {
     const input = $(`#${inputId}`); const list = $(`#${listId}`); let timer; let requestId = 0;
+    // An empty search box offers saved places first.
+    input.addEventListener('focus', () => { if (!input.value.trim()) savedPlaceSuggestions(which, list); });
     input.addEventListener('input', () => {
       state[which] = null; clearTimeout(timer); list.classList.remove('open'); const query = input.value.trim();
+      if (!query) { savedPlaceSuggestions(which, list); return; }
       if (query.length < 2) return;
       timer = setTimeout(async () => {
         const id = ++requestId;
@@ -318,7 +430,7 @@
 
   /* ---------- Wiring ---------- */
 
-  initializeMap(); icons(); renderSaved();
+  initializeMap(); icons(); renderSaved(); renderPlaces();
   setupAutocomplete('originInput', 'originSuggestions', 'origin'); setupAutocomplete('destinationInput', 'destinationSuggestions', 'destination');
   $('#fuelPrice').value = localStorage.getItem('maply-fuel-price') || '65.00';
   $('#fuelEfficiency').value = localStorage.getItem('maply-fuel-efficiency') || '12';
@@ -336,7 +448,31 @@
     localStorage.setItem(id === 'fuelPrice' ? 'maply-fuel-price' : 'maply-fuel-efficiency', $(`#${id}`).value);
     renderFuel(); if (state.comparison) renderComparison();
   }));
-  $('#clearHistoryButton').addEventListener('click', () => { localStorage.removeItem('maply-history'); renderSaved(); });
+  $('#openHistoryButton').addEventListener('click', () => { $('#historySearch').value = ''; renderHistoryDialog(); $('#historyDialog').showModal(); });
+  $('#closeHistoryButton').addEventListener('click', () => $('#historyDialog').close());
+  $('#historySearch').addEventListener('input', renderHistoryDialog);
+  $('#clearHistoryButton').addEventListener('click', () => {
+    if (!window.confirm('Delete all trip history on this device? This cannot be undone.')) return;
+    clearHistory(); renderSaved(); renderHistoryDialog();
+  });
+  $('#placeForm').addEventListener('submit', (event) => { if (event.submitter?.value === 'save') savePlaceFromDialog(); });
+  $('#placeForm').kind.forEach?.((radio) => radio.addEventListener('change', () => {
+    // Pre-fill the name with the type (Home, Work, School) unless the user typed one.
+    const current = $('#placeLabel').value.trim();
+    if (!current || Object.values(PLACE_KINDS).some((kind) => kind.label === current)) $('#placeLabel').value = radio.value === 'other' ? '' : PLACE_KINDS[radio.value].label;
+  }));
+  $('#cancelPlaceButton').addEventListener('click', () => { editingPlace = null; $('#placeDialog').close(); });
+  $('#removePlaceButton').addEventListener('click', () => {
+    if (editingPlace?.existing) { removePlace(editingPlace.existing.id); showToast(`Removed ${editingPlace.existing.label}.`); }
+    editingPlace = null; $('#placeDialog').close(); renderPlaces(); if (state.route) renderDirections();
+  });
+  // Clicking the dimmed backdrop closes a dialog.
+  $$('dialog').forEach((dialog) => dialog.addEventListener('click', (event) => {
+    if (event.target !== dialog) return;
+    const box = dialog.getBoundingClientRect();
+    const outside = event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+    if (outside) { editingPlace = null; dialog.close(); }
+  }));
   $('#collapseSheet').addEventListener('click', () => $('#sidebar').classList.add('collapsed'));
   $('#expandSheet').addEventListener('click', () => $('#sidebar').classList.remove('collapsed'));
   $('#locateButton').addEventListener('click', () => {

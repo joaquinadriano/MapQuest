@@ -59,8 +59,13 @@
           <p class="fine-print">Excludes tolls, parking and traffic.</p>
         </section>
 
+        <section class="panel saved-section" aria-labelledby="placesTitle">
+          <div class="panel-title"><h2 id="placesTitle">Saved places</h2></div>
+          <div id="placesList" class="saved-list"></div>
+        </section>
+
         <section class="panel saved-section" aria-labelledby="recentTitle">
-          <div class="panel-title"><h2 id="recentTitle">Recent</h2><button class="text-button" id="clearHistoryButton">Clear</button></div>
+          <div class="panel-title"><h2 id="recentTitle">Recent</h2><button class="text-button" id="openHistoryButton">See all</button></div>
           <div id="historyList" class="saved-list"><p class="empty-note">Routes you plan will be listed here.</p></div>
         </section>
 
@@ -79,8 +84,44 @@
       <button class="mobile-expand" id="expandSheet"><i data-lucide="search"></i><span>Where to?</span></button>
     </section>
   </main>
+
+  <dialog id="placeDialog" class="sheet-dialog" aria-labelledby="placeDialogTitle">
+    <form method="dialog" id="placeForm">
+      <h2 id="placeDialogTitle">Save place</h2>
+      <p id="placeDialogAddress" class="dialog-address"></p>
+      <div class="kind-chips" role="radiogroup" aria-label="Type of place">
+        <label><input type="radio" name="kind" value="home"><span><i data-lucide="house"></i>Home</span></label>
+        <label><input type="radio" name="kind" value="work"><span><i data-lucide="briefcase"></i>Work</span></label>
+        <label><input type="radio" name="kind" value="school"><span><i data-lucide="graduation-cap"></i>School</span></label>
+        <label><input type="radio" name="kind" value="other" checked><span><i data-lucide="star"></i>Other</span></label>
+      </div>
+      <label class="field-label" for="placeLabel">Name</label>
+      <input id="placeLabel" class="text-field" maxlength="60" placeholder="e.g. Lola's house">
+      <div class="dialog-actions">
+        <button type="button" class="ghost-button" id="removePlaceButton" hidden>Remove</button>
+        <span></span>
+        <button type="button" class="ghost-button" id="cancelPlaceButton">Cancel</button>
+        <button type="submit" class="solid-button" value="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="historyDialog" class="sheet-dialog history-dialog" aria-labelledby="historyDialogTitle">
+    <div class="dialog-head">
+      <h2 id="historyDialogTitle">Trip history</h2>
+      <button type="button" class="icon-button dark" id="closeHistoryButton" aria-label="Close trip history"><i data-lucide="x"></i></button>
+    </div>
+    <p id="historyStats" class="history-stats"></p>
+    <label class="sr-only" for="historySearch">Search trips</label>
+    <input id="historySearch" class="text-field" type="search" placeholder="Search by place">
+    <div id="historyGroups" class="history-groups"></div>
+    <div class="dialog-actions">
+      <button type="button" class="ghost-button danger" id="clearHistoryButton">Clear history</button>
+    </div>
+  </dialog>
+
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.33.0/mapbox-gl.js"></script>
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
-  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  <script type="module" src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

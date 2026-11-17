@@ -161,6 +161,13 @@ class MaplyEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 413)
         self.assertEqual(response.json["error"], "Request is too large.")
 
+    def test_home_page_has_saved_places_and_trip_history(self):
+        html = self.client.get("/").get_data(as_text=True)
+        for element_id in ("placesList", "historyList", "placeDialog", "historyDialog", "historySearch"):
+            self.assertIn(f'id="{element_id}"', html)
+        # The app script is an ES module so it can import the storage module.
+        self.assertIn('type="module"', html)
+
     def test_unknown_page_returns_404(self):
         self.assertEqual(self.client.get("/does-not-exist").status_code, 404)
 
