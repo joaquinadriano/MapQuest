@@ -16,9 +16,16 @@
       <header class="search-header">
         <div class="brand-row">
           <a class="brand" href="/" aria-label="Maply home"><span class="brand-icon"><i data-lucide="navigation"></i></span><span>Maply</span></a>
+          <button type="button" class="back-to-route" id="backToRoute" hidden><i data-lucide="chevron-up"></i>Back to route</button>
           <button class="icon-button mobile-map-button" id="collapseSheet" aria-label="Show the map"><i data-lucide="chevron-down"></i></button>
         </div>
         <h1 class="search-title">Where to?</h1>
+        <!-- Once a route is shown, the form folds into this bar so the route details get the space. -->
+        <button type="button" class="trip-bar" id="tripBar" hidden>
+          <span class="trip-bar-rail" aria-hidden="true"><span class="rail-origin"></span><span class="rail-line"></span><span class="rail-destination"></span></span>
+          <span class="trip-bar-places"><span id="tripBarFrom"></span><span id="tripBarTo"></span></span>
+          <span class="trip-bar-side"><span class="trip-bar-when" id="tripBarWhen"></span><span class="trip-bar-edit"><i data-lucide="pencil"></i>Edit</span></span>
+        </button>
         <form id="routeForm" autocomplete="off">
           <div class="locations">
             <div class="location-rail" aria-hidden="true"><span class="rail-origin"></span><span class="rail-line"></span><span class="rail-destination"></span></div>
@@ -45,8 +52,8 @@
             <input id="departCustom" type="datetime-local" hidden>
           </div>
           <button type="submit" id="findRoute" class="find-button"><span>Find routes</span></button>
-          <div id="statusMessage" class="status-message" role="status" aria-live="polite"></div>
         </form>
+        <div id="statusMessage" class="status-message" role="status" aria-live="polite"></div>
       </header>
 
       <div class="results-scroll" id="resultsScroll">

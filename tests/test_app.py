@@ -784,11 +784,11 @@ class CommuteEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         commute.assert_not_called()
 
-    def test_counts_five_against_the_rate_limit(self):
+    def test_counts_two_against_the_rate_limit(self):
         with patch.object(routes_api, "commute_routes", return_value=[]):
-            statuses = [self.post().status_code for _ in range(5)]
-        # 4 searches x 5 uses the whole budget of 20 per minute.
-        self.assertEqual(statuses, [200, 200, 200, 200, 429])
+            statuses = [self.post().status_code for _ in range(11)]
+        # 10 searches x 2 uses the whole budget of 20 per minute.
+        self.assertEqual(statuses, [200] * 10 + [429])
 
 
 class ApiErrorTests(unittest.TestCase):
