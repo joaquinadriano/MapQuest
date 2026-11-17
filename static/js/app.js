@@ -139,7 +139,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     const route = state.route; if (!route) return;
     const time = durationParts(route.duration_ms);
     $('#routeSummary').classList.remove('hidden');
-    $('#routeSummary').innerHTML = `<div class="journey-head"><div class="journey-time"><strong>${time.value}</strong><span>${time.unit}</span></div><div class="journey-arrive">${state.departAt ? `Leave ${whenText(state.departAt)}, arrive` : 'Arrive around'}<strong>${route.arrive_time ? whenText(route.arrive_time) : arrivalTime(route.duration_ms)}</strong></div></div><div class="journey-meta"><span class="mode-chip"><i data-lucide="${modes[state.mode].icon}"></i>${modes[state.mode].verb}</span><span>${route.legs ? transitSummary(route) : formatDistance(route.distance_m)}</span></div>${route.legs ? `<div class="line-chips">${lineChips(route)}</div>` : ''}`;
+    $('#routeSummary').innerHTML = `<div class="journey-head"><div class="journey-time"><strong>${time.value}</strong><span>${time.unit}</span></div><div class="journey-arrive">${state.departAt ? `Leave ${whenText(state.departAt)}, arrive` : 'Arrive around'}<strong>${route.arrive_time ? whenText(route.arrive_time) : arrivalTime(route.duration_ms)}</strong></div></div><div class="journey-meta"><span class="mode-chip"><i data-lucide="${modes[state.mode].icon}"></i>${modes[state.mode].verb}</span><span>${route.legs ? transitSummary(route) : formatDistance(route.distance_m)}</span></div>${route.legs ? `<div class="line-chips">${lineChips(route)}</div>${transitNotes(route)}` : ''}`;
     icons();
   }
 
@@ -158,7 +158,9 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
 
   /* ---------- Transit details ---------- */
 
-  const fareText = (fare) => (fare ? `₱${Number(fare.amount).toLocaleString('en-PH', { maximumFractionDigits: 2 })} fare` : '');
+  const fareText = (fare) => (fare ? `${fare.approximate ? 'about ' : ''}₱${Number(fare.amount).toLocaleString('en-PH', { maximumFractionDigits: 2 })} fare` : '');
+  // The built-in rail planner (used without a Google key) gives estimates for trains only.
+  const transitNotes = (route) => [route.notice ? `<p class="transit-note warn"><i data-lucide="triangle-alert"></i>${escapeHtml(route.notice)}</p>` : '', route.source === 'rail-estimate' ? '<p class="transit-note"><i data-lucide="info"></i>LRT-1, LRT-2 and MRT-3 only (no jeepneys or buses). Times and fares are estimates; check the operator before you go.</p>' : ''].join('');
   const transitSummary = (route) => [fareText(route.fare), route.transfers ? `${route.transfers} transfer${route.transfers === 1 ? '' : 's'}` : 'No transfers', `${formatStepDistance(route.walk_m || 0)} walking`].filter(Boolean).join(', ');
   // Coloured chips for each ride, e.g. [MRT-3] > [LRT-1].
   const lineChips = (route) => route.legs.filter((leg) => leg.type === 'transit').map((leg) => `<span class="line-chip" style="${leg.color ? `background:${escapeHtml(leg.color)};color:${escapeHtml(leg.text_color || '#fff')}` : ''}"><i data-lucide="${VEHICLE_ICONS[leg.vehicle] || 'bus'}"></i>${escapeHtml(leg.line)}</span>`).join('<i data-lucide="chevron-right" class="chip-sep"></i>');

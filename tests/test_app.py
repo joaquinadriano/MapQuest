@@ -755,11 +755,13 @@ class TransitEndpointTests(unittest.TestCase):
         transit.assert_not_called()
 
     @patch.object(ts, "GOOGLE_KEY", "")
-    def test_missing_key_returns_503_with_setup_hint(self):
+    def test_without_google_key_uses_the_built_in_rail_planner(self):
         ts.clear_cache()
-        response = self.post()
-        self.assertEqual(response.status_code, 503)
-        self.assertIn("GOOGLE_MAPS_API_KEY", response.json["error"])
+        with patch.object(ts, "session") as session:
+            response = self.post()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["routes"][0]["source"], "rail-estimate")
+        session.post.assert_not_called()
 
 
 class ApiErrorTests(unittest.TestCase):

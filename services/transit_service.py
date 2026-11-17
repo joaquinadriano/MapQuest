@@ -14,6 +14,7 @@ import requests
 from dotenv import load_dotenv
 
 from services.graphhopper_service import ServiceError
+from services.rail_service import rail_routes
 
 load_dotenv()
 
@@ -172,8 +173,13 @@ def _parse_route(route: dict) -> dict | None:
 
 
 def transit_routes(origin: dict, destination: dict, depart_at_ms: int | None = None) -> list[dict]:
-    """Up to three public transport routes, fastest first."""
-    require_google_key()
+    """Up to three public transport routes, fastest first.
+
+    Uses Google when GOOGLE_MAPS_API_KEY is set (trains and buses, real timetables);
+    otherwise Maply's built-in LRT/MRT planner (trains only, estimated times and fares).
+    """
+    if not GOOGLE_KEY:
+        return rail_routes(origin, destination, depart_at_ms)
     # Round the departure to 5 minutes so repeated searches share the cache.
     depart_key = None if depart_at_ms is None else depart_at_ms // 300_000
     key = (round(origin["lat"], 4), round(origin["lng"], 4), round(destination["lat"], 4), round(destination["lng"], 4), depart_key)
