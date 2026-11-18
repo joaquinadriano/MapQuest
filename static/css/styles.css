@@ -263,7 +263,7 @@ button.suggestion:hover, button.suggestion:focus-visible { background: var(--blu
 .settings-row { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 4px 6px; }
 .small-label { font-size: 14px; font-weight: 700; color: var(--muted); }
 .segmented { display: flex; padding: 3px; background: #e3e9f1; border-radius: 999px; }
-.segmented button { height: 30px; min-width: 48px; border-radius: 999px; font-size: 14px; font-weight: 800; color: var(--muted); }
+.segmented button { height: 30px; min-width: 48px; padding: 0 12px; border-radius: 999px; font-size: 14px; font-weight: 800; color: var(--muted); white-space: nowrap; }
 .segmented button.selected { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgb(28 42 58 / 0.15); }
 .sidebar-footer { flex: none; padding: 6px 6px 18px; font-size: 12px; font-weight: 600; color: var(--faint); }
 
@@ -515,3 +515,52 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 3px s
 .trip-bar-edit svg { width: 13px; height: 13px; }
 .trip-bar:focus-visible { outline-color: #fff; }
 .back-to-route[hidden] { display: none; }
+
+/* ---------- MapQuest trip tables ---------- */
+.segmented.small button { height: 26px; min-width: 0; padding: 0 10px; font-size: 13px; }
+.mq-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
+.mq-table caption { text-align: left; font-size: 15px; font-weight: 800; padding: 14px 0 8px; }
+.mq-table th, .mq-table td { padding: 8px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+.mq-table tr:last-child th, .mq-table tr:last-child td { border-bottom: 0; }
+.mq-summary th { width: 42%; color: var(--muted); font-weight: 700; background: var(--canvas); }
+.mq-summary td { font-weight: 800; }
+.mq-summary small { color: var(--faint); font-weight: 600; }
+.mq-steps thead th { background: var(--blue); color: #fff; font-weight: 800; font-size: 13px; }
+.mq-steps tbody tr:nth-child(even) td { background: var(--hover); }
+.mq-steps .mq-num { color: var(--blue-strong); font-weight: 900; width: 2em; text-align: right; }
+.mq-steps .mq-dist, .mq-steps .mq-time, .mq-steps thead th:nth-child(n+3) { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mq-steps .mq-dist { color: #1f7a4d; font-weight: 700; }
+.mq-steps .mq-time { color: #8a5a00; font-weight: 700; }
+.mq-chip { display: inline-block; padding: 2px 9px; border-radius: 999px; font-weight: 800; }
+.mq-chip.cap { text-transform: capitalize; }
+.mq-chip.blue { background: var(--blue-tint); color: var(--blue-strong); }
+.mq-chip.green { background: #e4f4eb; color: #1f7a4d; }
+.mq-chip.amber { background: #fcf1dc; color: #8a5a00; }
+.mq-chip.purple { background: #efe8fa; color: #5f3a96; }
+.mq-chip.red { background: #fbe7e7; color: var(--stop); }
+.mq-webex, .mq-error { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 9px 12px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 700; }
+.mq-webex svg, .mq-error svg { width: 18px; height: 18px; flex: none; }
+.mq-webex > span, .mq-error > span { flex: 1; }
+.mq-webex .text-button, .mq-error .text-button { flex: none; font-size: 13px; }
+.mq-sending { flex: none; font-size: 13px; color: var(--muted); }
+.mq-webex.sent { background: #e4f4eb; color: #1f7a4d; }
+.mq-webex.not-sent { background: #fcf1dc; color: #8a5a00; }
+.mq-error { margin-top: 0; background: #fbe7e7; color: var(--stop); }
+.mq-note { margin-bottom: 10px; }
+.mq-heading { display: flex; flex-direction: column; min-width: 0; }
+.mq-mode { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: capitalize; }
+.mq-mode:empty { display: none; }
+.mq-table caption small { font-size: 13px; font-weight: 700; color: var(--muted); margin-left: 4px; }
+.mq-weather-part { display: inline-flex; align-items: baseline; gap: 4px; margin-right: 12px; white-space: nowrap; }
+.mq-weather-part small { color: var(--muted); font-weight: 700; }
+.mq-advice { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.mq-advice li { padding: 8px 12px; border-radius: var(--radius-sm); background: var(--blue-tint); color: var(--blue-strong); font-size: 14px; font-weight: 700; }
+.mq-steps.collapsed tbody tr:nth-child(n+5) { display: none; }
+.mq-toggle { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin-top: 8px; padding: 9px; border-radius: var(--radius-sm); background: var(--canvas); color: var(--blue-strong); font-size: 14px; font-weight: 800; }
+.mq-toggle:hover { background: var(--blue-tint); }
+.mq-toggle svg { width: 16px; height: 16px; }
+.mq-skeleton { display: grid; gap: 8px; }
+.mq-skeleton span { height: 34px; border-radius: var(--radius-sm); background: linear-gradient(90deg, var(--canvas) 0%, var(--line) 50%, var(--canvas) 100%); background-size: 200% 100%; animation: mq-shimmer 1.2s ease-in-out infinite; }
+.mq-skeleton span:nth-child(odd) { width: 85%; }
+@keyframes mq-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .mq-skeleton span { animation: none; } }

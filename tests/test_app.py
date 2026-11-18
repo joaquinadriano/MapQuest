@@ -776,6 +776,21 @@ class CommuteServiceTests(unittest.TestCase):
             cs.commute_routes(INTRAMUROS, MEGAMALL, now_ms=NOW)
         self.assertIn("could not read", str(ctx.exception))
 
+    @patch.object(cs, "session")
+    def test_dropped_connection_is_retried_once(self, session):
+        session.post.side_effect = [requests.ConnectionError("RemoteDisconnected"), fake_response(payload=openai_answer([]))]
+        cs.commute_routes(INTRAMUROS, MEGAMALL, now_ms=NOW)
+        self.assertEqual(session.post.call_count, 2)
+
+    @patch.object(cs, "session")
+    def test_unreachable_openai_falls_back_to_rail_without_using_quota(self, session):
+        session.post.side_effect = requests.ConnectionError("down")
+        route = cs.commute_routes(INTRAMUROS, MEGAMALL, now_ms=NOW)[0]
+        self.assertEqual(route["source"], "rail-estimate")
+        self.assertEqual(session.post.call_count, 2)
+        self.assertEqual(cs._daily["count"], 0)
+
+
 class CommuteWithoutKeyTests(unittest.TestCase):
     @patch.object(cs, "OPENAI_KEY", "")
     @patch.object(cs, "session")

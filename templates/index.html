@@ -57,6 +57,11 @@
       </header>
 
       <div class="results-scroll" id="resultsScroll">
+        <section id="mapquestSection" class="panel hidden" aria-labelledby="mapquestTitle">
+          <div class="panel-title"><div class="mq-heading"><h2 id="mapquestTitle">MapQuest trip</h2><span id="mapquestMode" class="mq-mode"></span></div><div class="segmented small" role="group" aria-label="Units for the MapQuest trip"><button type="button" data-unit="metric">Metric</button><button type="button" data-unit="imperial">English</button></div></div>
+          <div id="mapquestBody" aria-live="polite"></div>
+        </section>
+
         <section id="comparisonSection" class="panel hidden" aria-labelledby="optionsTitle">
           <div class="panel-title"><h2 id="optionsTitle">Ways to get there</h2><button class="text-button" id="compareButton">Refresh</button></div>
           <div id="comparisonList" class="option-list"></div>
@@ -102,10 +107,10 @@
         </section>
 
         <section class="settings-row">
-          <span class="small-label">Distances in</span>
-          <div class="segmented" role="group" aria-label="Distance units"><button type="button" data-unit="metric" class="selected">km</button><button type="button" data-unit="imperial">mi</button></div>
+          <span class="small-label">Units</span>
+          <div class="segmented" role="group" aria-label="Units"><button type="button" data-unit="metric" class="selected">Metric (km)</button><button type="button" data-unit="imperial">English (mi)</button></div>
         </section>
-        <footer class="sidebar-footer">Maps by Mapbox · Routing by GraphHopper · Rail stations © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors</footer>
+        <footer class="sidebar-footer">Maps by Mapbox · Routing by GraphHopper and MapQuest · Rail stations © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors</footer>
       </div>
     </aside>
     <section class="map-area" aria-label="Map and route">

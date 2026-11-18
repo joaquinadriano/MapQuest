@@ -18,6 +18,7 @@ or if OpenAI fails, the built-in LRT/MRT planner is used instead.
 """
 
 import json
+import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -32,6 +33,7 @@ from services import rail_service as rail
 from services.graphhopper_service import ServiceError, in_metro_manila_box, road_path
 
 load_dotenv()
+log = logging.getLogger(__name__)
 
 OPENAI_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini").strip() or "gpt-5.4-mini"
@@ -100,6 +102,10 @@ INSTRUCTIONS = (
 )
 
 
+class OpenAIUnreachable(ServiceError):
+    """The connection to OpenAI failed (as opposed to OpenAI answering with an error)."""
+
+
 def commute_available() -> bool:
     return bool(OPENAI_KEY)
 
@@ -122,12 +128,18 @@ def _ask_openai(origin: dict, destination: dict, depart_ms: int) -> dict:
         ),
         "text": {"format": {"type": "json_schema", "name": "commute_plan", "strict": True, "schema": SCHEMA}},
     }
-    try:
-        response = session.post(OPENAI_URL, json=body, headers={"Authorization": f"Bearer {OPENAI_KEY}"}, timeout=TIMEOUT)
-    except requests.Timeout as exc:
-        raise ServiceError("The commute search took too long. Please try again.", 504) from exc
-    except requests.RequestException as exc:
-        raise ServiceError("Could not reach OpenAI. Check your connection and try again.", 502) from exc
+    response = None
+    for attempt in range(2):
+        try:
+            response = session.post(OPENAI_URL, json=body, headers={"Authorization": f"Bearer {OPENAI_KEY}"}, timeout=TIMEOUT)
+            break
+        except requests.Timeout as exc:
+            raise ServiceError("The commute search took too long. Please try again.", 504) from exc
+        except requests.RequestException as exc:
+            # Usually a stale keep-alive connection closed while idle; one retry opens a fresh one.
+            log.warning("OpenAI request failed (attempt %d): %r", attempt + 1, exc)
+            if attempt == 1:
+                raise OpenAIUnreachable("Could not reach OpenAI. Check your connection and try again.", 502) from exc
     if response.status_code == 401:
         raise ServiceError("OpenAI rejected the API key. Check OPENAI_API_KEY in .env.", 503)
     if response.status_code == 429:
@@ -381,14 +393,20 @@ def _with_times(route: dict, depart_ms: int, sources: list) -> dict:
     }
 
 
-def _count_today() -> None:
+def _check_daily_limit(count: bool = False) -> None:
     today = datetime.now(MANILA).date()
     with _lock:
         if _daily["day"] != today:
             _daily.update(day=today, count=0)
         if _daily["count"] >= DAILY_LIMIT:
             raise ServiceError("Maply has reached today's limit for commute searches. Driving, cycling and walking still work.", 429)
-        _daily["count"] += 1
+        if count:
+            _daily["count"] += 1
+
+
+def _count_today() -> None:
+    """Count a search that reached OpenAI (failed connections are not billed, so not counted)."""
+    _check_daily_limit(count=True)
 
 
 def commute_routes(origin: dict, destination: dict, depart_at_ms: int | None = None, now_ms: int | None = None) -> list[dict]:
@@ -403,8 +421,14 @@ def commute_routes(origin: dict, destination: dict, depart_at_ms: int | None = N
     if cached and monotonic() - cached[0] < CACHE_SECONDS:
         plan = cached[1]
     else:
+        _check_daily_limit()
+        try:
+            answer = _ask_openai(origin, destination, depart_ms)
+        except OpenAIUnreachable:
+            # Not cached, so the next search tries OpenAI again; meanwhile show the trains Maply knows.
+            log.warning("OpenAI unreachable; using the built-in rail planner")
+            return rail.rail_routes(origin, destination, depart_ms)
         _count_today()
-        answer = _ask_openai(origin, destination, depart_ms)
         options = [option for option in (build_option(raw, origin, destination) for raw in answer.get("options", [])[:3]) if option]
         _follow_roads(options)
         options = _sensible(options)

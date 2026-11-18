@@ -10,7 +10,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     if (old !== null && localStorage.getItem(`maply-${key}`) === null) localStorage.setItem(`maply-${key}`, old);
     localStorage.removeItem(`mapquest-${key}`);
   });
-  const state = { mode: localStorage.getItem('maply-mode') || 'car', unit: localStorage.getItem('maply-unit') || 'metric', origin: null, destination: null, route: null, comparison: null, map: null, mapReady: false, pendingRoute: null, markers: [], userMarker: null, satellite: false, busy: false, comparing: false, alternatives: {}, loadingAlternatives: null, departAt: null, weather: null };
+  const state = { mode: localStorage.getItem('maply-mode') || 'car', unit: localStorage.getItem('maply-unit') || 'metric', origin: null, destination: null, route: null, comparison: null, map: null, mapReady: false, pendingRoute: null, markers: [], userMarker: null, satellite: false, busy: false, comparing: false, alternatives: {}, loadingAlternatives: null, departAt: null, weather: null, mapquest: {} };
   const modes = { car: { name: 'Drive', verb: 'Driving', icon: 'car-front' }, bike: { name: 'Cycle', verb: 'Cycling', icon: 'bike' }, foot: { name: 'Walk', verb: 'Walking', icon: 'footprints' }, commute: { name: 'Commute', verb: 'Commuting', icon: 'bus' } };
   // Trips saved before Commute replaced Transit still show the right icon.
   Object.defineProperty(modes, 'transit', { value: modes.commute, enumerable: false });
@@ -546,12 +546,129 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
 
   function setPlace(which, place) { state[which] = place; $(`#${which === 'origin' ? 'originInput' : 'destinationInput'}`).value = place.name; }
 
+  /* ---------- MapQuest trip (tables) and Webex summary ---------- */
+
+  // MapQuest plans the same trip and its answer is shown as two tables. The server posts a
+  // trip summary (with weather) to Webex each time MapQuest is asked, so each trip, mode and
+  // departure time is asked once and kept here; switching units only redraws the tables
+  // (MapQuest sends km and miles, weather comes in °C and is converted here).
+  // The panel follows the last route shown (state.mapquestKey), not the live form fields, so
+  // it stays put while the user types a new place or when Commute results arrive later.
+  // MapQuest has no public transport, so Commute shows MapQuest's driving route.
+  const MQ_PREVIEW_STEPS = 4;
+
+  function mapquestRequest() {
+    const mode = ['car', 'bike', 'foot'].includes(state.mode) ? state.mode : 'car';
+    return { origin: state.origin, destination: state.destination, mode, unit: state.unit, depart_at: state.departAt };
+  }
+
+  async function askMapQuest(key, request) {
+    try {
+      const result = await api('/api/mapquest', { method: 'POST', body: JSON.stringify(request) });
+      state.mapquest[key] = { trip: result.trip, weather: result.weather, webex: { ...result.webex, at: Date.now() }, request };
+    } catch (error) {
+      state.mapquest[key] = { error: error.message, request };
+    }
+    if (key === state.mapquestKey) renderMapQuest();
+  }
+
+  function loadMapQuest() {
+    if (!state.origin || !state.destination) return;
+    const request = mapquestRequest();
+    const key = `${request.origin.lat},${request.origin.lng}|${request.destination.lat},${request.destination.lng}|${request.mode}|${request.depart_at || 'now'}`;
+    state.mapquestKey = key;
+    if (state.mapquest[key]) { renderMapQuest(); return; }
+    state.mapquest[key] = { loading: true, request };
+    renderMapQuest();
+    askMapQuest(key, request);
+  }
+
+  // "Send again" / "Try again": asks MapQuest once more (fresh weather) and posts a new summary.
+  function resendMapQuest() {
+    const key = state.mapquestKey; const entry = state.mapquest[key];
+    if (!entry || entry.loading || entry.sending) return;
+    state.mapquest[key] = { ...entry, sending: true };
+    renderMapQuest();
+    askMapQuest(key, { ...entry.request, unit: state.unit });
+  }
+
+  const mqDistance = (value) => (value < 0.05 ? '&lt; 0.1' : value.toFixed(1));
+  const mqTemp = (celsius) => (state.unit === 'imperial' ? `${Math.round(celsius * 9 / 5 + 32)}°F` : `${Math.round(celsius)}°C`);
+  const stepTime = (seconds) => {
+    if (seconds < 60) return `${seconds} s`;
+    const minutes = Math.round(seconds / 60); const h = Math.floor(minutes / 60);
+    return h ? `${h} h ${minutes % 60} min` : `${minutes} min`;
+  };
+
+  function mqWeatherCell(weather) {
+    const part = (label, reading) => reading
+      ? `<span class="mq-weather-part" title="${escapeHtml(reading.description)}, feels like ${mqTemp(reading.feels_like_c)}, ${reading.rain_chance}% chance of rain"><span aria-hidden="true">${reading.emoji}</span> <strong>${mqTemp(reading.temp_c)}</strong> <small>${label}</small></span>`
+      : '';
+    return `${part('leaving', weather.start)}${part('arriving', weather.end)}`;
+  }
+
+  function renderMapQuest() {
+    const section = $('#mapquestSection'); const body = $('#mapquestBody');
+    const entry = state.mapquestKey && state.mapquest[state.mapquestKey];
+    if (!entry) { section.classList.add('hidden'); return; }
+    section.classList.remove('hidden');
+    const modeLabel = $('#mapquestMode');
+    if (entry.loading) {
+      modeLabel.textContent = '';
+      body.innerHTML = `<div class="mq-skeleton" aria-label="Loading MapQuest directions">${'<span></span>'.repeat(5)}</div><p class="sr-only">Asking MapQuest for directions…</p>`;
+      return;
+    }
+    if (entry.error) {
+      modeLabel.textContent = '';
+      body.innerHTML = `<p class="mq-error"><i data-lucide="triangle-alert"></i><span>${escapeHtml(entry.error)}</span><button type="button" class="text-button" data-mq-retry>Try again</button></p>`;
+      icons(); return;
+    }
+    const trip = entry.trip; const english = state.unit === 'imperial'; const unit = english ? 'mi' : 'km';
+    modeLabel.textContent = `${modes[trip.mode]?.verb || ''} · ${trip.route_type}`;
+    const fuel = trip.fuel ? (english ? `${trip.fuel.gallons.toFixed(2)} gal` : `${trip.fuel.liters.toFixed(2)} L`) : null;
+    const rows = [
+      ['Distance', `<span class="mq-chip green">${mqDistance(trip.distance[unit])} ${unit}</span>`],
+      ['Trip duration', `<span class="mq-chip amber">${escapeHtml(trip.formatted_time)}</span> <small>hh:mm:ss</small>`],
+      ...(entry.weather ? [['Weather', mqWeatherCell(entry.weather)]] : []),
+      ...(fuel ? [['Fuel used (est.)', `<span class="mq-chip purple">${fuel}</span>`]] : []),
+      ['Toll roads', trip.has_toll_road ? '<span class="mq-chip red">Yes</span>' : '<span class="mq-chip green">No</span>'],
+      ['Highways', trip.has_highway ? '<span class="mq-chip amber">Yes</span>' : '<span class="mq-chip green">No</span>'],
+    ];
+    const summary = `<table class="mq-table mq-summary"><caption class="sr-only">MapQuest trip summary</caption><tbody>${rows.map(([label, value]) => `<tr><th scope="row">${label}</th><td>${value}</td></tr>`).join('')}</tbody></table>`;
+    const advice = entry.weather?.advice?.length ? `<ul class="mq-advice">${entry.weather.advice.map((tip) => `<li>${escapeHtml(tip)}</li>`).join('')}</ul>` : '';
+
+    const count = trip.maneuvers.length;
+    const collapsible = count > MQ_PREVIEW_STEPS + 1;
+    const collapsed = collapsible && !state.mapquestExpanded;
+    const steps = trip.maneuvers.map((step) => `<tr><td class="mq-num">${step.number}</td><td>${escapeHtml(step.narrative)}</td><td class="mq-dist">${mqDistance(step.distance[unit])}</td><td class="mq-time">${stepTime(step.seconds)}</td></tr>`).join('');
+    const toggle = collapsible ? `<button type="button" class="mq-toggle" data-mq-toggle aria-expanded="${!collapsed}" aria-controls="mqSteps">${collapsed ? `Show all ${count} steps` : 'Show fewer steps'}<i data-lucide="${collapsed ? 'chevron-down' : 'chevron-up'}"></i></button>` : '';
+    const directions = count ? `<table class="mq-table mq-steps${collapsed ? ' collapsed' : ''}" id="mqSteps"><caption>Turn-by-turn directions <small>${count} steps</small></caption><thead><tr><th scope="col">#</th><th scope="col">Direction</th><th scope="col">${unit}</th><th scope="col">Time</th></tr></thead><tbody>${steps}</tbody></table>${toggle}` : '';
+
+    const webex = entry.webex || {};
+    const notSetUp = !webex.sent && /not set up/i.test(webex.message || '');
+    const sentText = webex.sent ? `Sent to Webex at ${new Date(webex.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${entry.weather ? ', with weather' : ''}.` : escapeHtml(webex.message || '');
+    const action = entry.sending ? '<span class="mq-sending">Sending…</span>' : notSetUp ? '' : `<button type="button" class="text-button" data-mq-retry>${webex.sent ? 'Send again' : 'Try again'}</button>`;
+    const webexLine = `<div class="mq-webex ${webex.sent ? 'sent' : 'not-sent'}" role="status"><i data-lucide="${webex.sent ? 'circle-check' : 'message-square-warning'}"></i><span>${sentText}</span>${action}</div>`;
+    const note = state.mode === 'commute' ? '<p class="empty-note mq-note">MapQuest has no jeepney, bus or train routes, so this is its driving route.</p>' : '';
+    body.innerHTML = note + summary + advice + directions + webexLine;
+    icons();
+  }
+
+  $('#mapquestBody').addEventListener('click', (event) => {
+    if (event.target.closest('[data-mq-retry]')) { resendMapQuest(); return; }
+    if (event.target.closest('[data-mq-toggle]')) {
+      state.mapquestExpanded = !state.mapquestExpanded;
+      renderMapQuest();
+      if (!state.mapquestExpanded) $('#mapquestSection').scrollIntoView({ block: 'nearest' });
+    }
+  });
+
   /* ---------- Requests ---------- */
 
   function showRoute(route) {
     state.route = route;
     drawRoute(state.route, state.origin, state.destination);
-    renderSummary(); renderDirections(); renderFuel(); loadAlternatives(); loadWeather();
+    renderSummary(); renderDirections(); renderFuel(); loadAlternatives(); loadWeather(); loadMapQuest();
     recordTrip({ origin: state.origin, destination: state.destination, mode: state.mode, route });
     renderSaved();
     setStatus('Route found.', 'success');
@@ -667,15 +784,21 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     if (!state.origin || !state.destination) { setStatus('Pick a start and destination from the suggestions.'); return; }
     setStatus(); setBusy(true);
     state.comparison = null; state.alternatives = {}; state.alternativesError = null; state.loadingAlternatives = null;
-    state.commuteItem = null; state.waitingForCommute = state.mode === 'commute'; state.editingTrip = false;
+    state.commuteItem = null; state.waitingForCommute = false; state.editingTrip = false;
+    state.mapquest = {}; // A new search asks MapQuest again, which posts a fresh Webex summary.
     loadCommute();
     try {
       if (!(await compareModes())) return;
-      if (state.mode === 'commute' && !cachedRoute('commute')) setStatus('Finding commute routes…');
-      if (!cachedRoute(state.mode)) {
-        const fastest = state.comparison.filter((item) => item.available).sort((a, b) => a.duration_ms - b.duration_ms)[0];
-        if (!fastest) { if (!state.waitingForCommute) setStatus(state.comparison[0]?.error || 'No route found between these places.'); return; }
-        state.mode = fastest.mode;
+      // A new search opens Drive (or the cycling/walking mode the user picked) and stays there:
+      // Commute results arrive later and are only listed, never opened automatically.
+      if (state.mode === 'commute' || !cachedRoute(state.mode)) {
+        const roads = state.comparison.filter((item) => item.mode !== 'commute' && item.available && item.route);
+        const pick = roads.find((item) => item.mode === 'car') || roads.sort((a, b) => a.duration_ms - b.duration_ms)[0];
+        if (!pick) {
+          // No road route at all: Commute is the only option left, so open it when it's ready.
+          state.waitingForCommute = true; setStatus('Finding commute routes…'); return;
+        }
+        state.mode = pick.mode;
       }
       markSelectedOption();
       showRoute(cachedRoute(state.mode));
@@ -721,8 +844,8 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
 
   function updateUnit(unit) {
     state.unit = unit; localStorage.setItem('maply-unit', unit);
-    $$('[data-unit]').forEach((button) => button.classList.toggle('selected', button.dataset.unit === unit));
-    if (state.route) { renderSummary(); renderDirections(); renderFuel(); renderAlternatives(); renderWeather(); }
+    $$('[data-unit]').forEach((button) => { button.classList.toggle('selected', button.dataset.unit === unit); button.setAttribute('aria-pressed', String(button.dataset.unit === unit)); });
+    if (state.route) { renderSummary(); renderDirections(); renderFuel(); renderAlternatives(); renderWeather(); renderMapQuest(); }
     if (state.comparison) renderComparison();
   }
 
