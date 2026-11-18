@@ -17,7 +17,9 @@ from services.graphhopper_service import (
     route_alternatives,
     route_for,
 )
+from services.mapquest_service import route_for as mapquest_route_for
 from services.weather_service import weather_for
+from services.webex_service import send_summary as send_webex_summary
 
 api = Blueprint("api", __name__)
 _request_buckets: dict[str, deque] = defaultdict(deque)
@@ -32,7 +34,7 @@ def limit_graphhopper_requests():
     # GraphHopper charges about 2 credits for an alternative-routes request. A commute search
     # counts as 2: most are answered from the day-long cache (for example when only the
     # departure time changes), and COMMUTE_DAILY_LIMIT caps the paid OpenAI searches.
-    costs = {"api.geocode_endpoint": 1, "api.route_endpoint": 1, "api.compare_endpoint": 3, "api.alternatives_endpoint": 2, "api.commute_endpoint": 2}
+    costs = {"api.geocode_endpoint": 1, "api.route_endpoint": 1, "api.compare_endpoint": 3, "api.alternatives_endpoint": 2, "api.commute_endpoint": 2, "api.mapquest_endpoint": 1}
     cost = costs.get(request.endpoint)
     if cost is None:
         return None
@@ -175,6 +177,21 @@ def commute_endpoint():
             depart_at = None  # "Now" (allowing for small clock differences).
 
     return jsonify({"routes": commute_routes(origin, destination, depart_at), "origin": origin, "destination": destination})
+
+
+@api.post("/api/mapquest")
+def mapquest_endpoint():
+    """MapQuest's directions for the trip, plus an automatic trip summary posted to Webex."""
+    body = request.get_json(silent=True) or {}
+    origin = require_metro_manila(clean_place(body.get("origin"), "Origin"), "Starting point")
+    destination = require_metro_manila(clean_place(body.get("destination"), "Destination"), "Destination")
+
+    if abs(origin["lat"] - destination["lat"]) < 1e-6 and abs(origin["lng"] - destination["lng"]) < 1e-6:
+        raise ServiceError("Origin and destination cannot be the same place.", 400)
+
+    unit = "imperial" if body.get("unit") in ("imperial", "english") else "metric"
+    trip = mapquest_route_for(origin, destination, str(body.get("mode", "car")))
+    return jsonify({"trip": trip.to_dict(), "unit": unit, "webex": send_webex_summary(trip, unit)})
 
 
 @api.get("/api/weather")

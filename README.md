@@ -159,3 +159,22 @@ The tests mock external services and do not consume API credits. A live route se
 - Fuel estimates use route distance and configured average efficiency. They exclude tolls, parking fees, and changing traffic conditions.
 - Recent trips and unit preference live in browser storage on the current browser/device and are not synchronized.
 - A single best route is displayed for the selected profile; GraphHopper alternative-route options are not enabled.
+
+## MapQuest trip panel and Webex summaries
+
+After Maply finds a driving, cycling or walking route, it also asks the **MapQuest Directions API** for the same trip and shows a **MapQuest trip** panel:
+
+- a colour-coded summary table (route type, units, distance, trip duration, fuel when MapQuest reports it, toll roads, highways);
+- a turn-by-turn directions table with distance and time for every step.
+
+Pick **Metric** (km, litres) or **English** (miles, US gallons) with the switch in the panel or at the bottom of the sidebar; the tables change straight away without another MapQuest request.
+
+Each new search also **posts a trip summary to a Webex Teams room** automatically, in the units selected at the time. The panel shows whether it was sent. Add these to `.env`:
+
+```
+MAPQUEST_API_KEY=your_mapquest_api_key_here
+WEBEX_ACCESS_TOKEN=your_webex_access_token_here
+WEBEX_ROOM_ID=your_webex_room_id_here
+```
+
+Without the Webex values the MapQuest panel still works and says Webex is not set up. Personal Webex access tokens expire after 12 hours; refresh `WEBEX_ACCESS_TOKEN` from developer.webex.com when the panel reports an expired token. The server code is in `services/mapquest_service.py`, `services/webex_service.py` and the `POST /api/mapquest` endpoint in `routes/api.py`.

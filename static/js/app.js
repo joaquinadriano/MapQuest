@@ -10,7 +10,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     if (old !== null && localStorage.getItem(`maply-${key}`) === null) localStorage.setItem(`maply-${key}`, old);
     localStorage.removeItem(`mapquest-${key}`);
   });
-  const state = { mode: localStorage.getItem('maply-mode') || 'car', unit: localStorage.getItem('maply-unit') || 'metric', origin: null, destination: null, route: null, comparison: null, map: null, mapReady: false, pendingRoute: null, markers: [], userMarker: null, satellite: false, busy: false, comparing: false, alternatives: {}, loadingAlternatives: null, departAt: null, weather: null };
+  const state = { mode: localStorage.getItem('maply-mode') || 'car', unit: localStorage.getItem('maply-unit') || 'metric', origin: null, destination: null, route: null, comparison: null, map: null, mapReady: false, pendingRoute: null, markers: [], userMarker: null, satellite: false, busy: false, comparing: false, alternatives: {}, loadingAlternatives: null, departAt: null, weather: null, mapquest: {} };
   const modes = { car: { name: 'Drive', verb: 'Driving', icon: 'car-front' }, bike: { name: 'Cycle', verb: 'Cycling', icon: 'bike' }, foot: { name: 'Walk', verb: 'Walking', icon: 'footprints' }, commute: { name: 'Commute', verb: 'Commuting', icon: 'bus' } };
   // Trips saved before Commute replaced Transit still show the right icon.
   Object.defineProperty(modes, 'transit', { value: modes.commute, enumerable: false });
@@ -546,12 +546,72 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
 
   function setPlace(which, place) { state[which] = place; $(`#${which === 'origin' ? 'originInput' : 'destinationInput'}`).value = place.name; }
 
+  /* ---------- MapQuest trip (tables) and Webex summary ---------- */
+
+  // MapQuest plans the same trip and its answer is shown as two tables. The server posts a
+  // trip summary to Webex each time MapQuest is asked, so each trip and mode is asked once
+  // and kept here; switching units only redraws the tables (MapQuest sends km and miles).
+  // The panel follows the last route shown (state.mapquestKey), not the live form fields, so
+  // it stays put while the user types a new place or when Commute results arrive later.
+  // MapQuest has no public transport, so Commute shows MapQuest's driving route.
+  async function loadMapQuest() {
+    if (!state.origin || !state.destination) return;
+    const mode = ['car', 'bike', 'foot'].includes(state.mode) ? state.mode : 'car';
+    const origin = state.origin; const destination = state.destination;
+    const key = `${origin.lat},${origin.lng}|${destination.lat},${destination.lng}|${mode}`;
+    state.mapquestKey = key;
+    if (!state.mapquest[key]) {
+      state.mapquest[key] = { loading: true };
+      renderMapQuest();
+      try {
+        const result = await api('/api/mapquest', { method: 'POST', body: JSON.stringify({ origin, destination, mode, unit: state.unit }) });
+        state.mapquest[key] = { trip: result.trip, webex: result.webex };
+      } catch (error) {
+        state.mapquest[key] = { error: error.message };
+      }
+    }
+    if (key === state.mapquestKey) renderMapQuest();
+  }
+
+  const stepTime = (seconds) => {
+    const h = Math.floor(seconds / 3600); const m = Math.floor((seconds % 3600) / 60); const s = String(seconds % 60).padStart(2, '0');
+    return h ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
+  };
+
+  function renderMapQuest() {
+    const section = $('#mapquestSection'); const body = $('#mapquestBody');
+    const entry = state.mapquestKey && state.mapquest[state.mapquestKey];
+    if (!entry) { section.classList.add('hidden'); return; }
+    section.classList.remove('hidden');
+    if (entry.loading) { body.innerHTML = '<p class="empty-note">Asking MapQuest for directions…</p>'; return; }
+    if (entry.error) { body.innerHTML = `<p class="mq-error"><i data-lucide="triangle-alert"></i>${escapeHtml(entry.error)}</p>`; icons(); return; }
+    const trip = entry.trip; const english = state.unit === 'imperial'; const unit = english ? 'mi' : 'km';
+    const fuel = trip.fuel ? (english ? `${trip.fuel.gallons.toFixed(2)} gal` : `${trip.fuel.liters.toFixed(2)} L`) : null;
+    const rows = [
+      ['Route type', `<span class="mq-chip blue cap">${escapeHtml(trip.route_type)}</span>`],
+      ['Units', `<span class="mq-chip blue">${english ? 'English' : 'Metric'}</span>`],
+      ['Distance', `<span class="mq-chip green">${trip.distance[unit].toFixed(2)} ${unit}</span>`],
+      ['Trip duration', `<span class="mq-chip amber">${escapeHtml(trip.formatted_time)}</span> <small>hh:mm:ss</small>`],
+      ...(fuel ? [['Fuel used (est.)', `<span class="mq-chip purple">${fuel}</span>`]] : []),
+      ['Toll roads', trip.has_toll_road ? '<span class="mq-chip red">Yes</span>' : '<span class="mq-chip green">No</span>'],
+      ['Highways', trip.has_highway ? '<span class="mq-chip amber">Yes</span>' : '<span class="mq-chip green">No</span>'],
+    ];
+    const summary = `<table class="mq-table mq-summary"><caption class="sr-only">MapQuest trip summary</caption><tbody>${rows.map(([label, value]) => `<tr><th scope="row">${label}</th><td>${value}</td></tr>`).join('')}</tbody></table>`;
+    const steps = trip.maneuvers.map((step) => `<tr><td class="mq-num">${step.number}</td><td>${escapeHtml(step.narrative)}</td><td class="mq-dist">${step.distance[unit].toFixed(2)}</td><td class="mq-time">${stepTime(step.seconds)}</td></tr>`).join('');
+    const directions = steps ? `<table class="mq-table mq-steps"><caption>Turn-by-turn directions</caption><thead><tr><th scope="col">#</th><th scope="col">Direction</th><th scope="col">${unit}</th><th scope="col">Time</th></tr></thead><tbody>${steps}</tbody></table>` : '';
+    const webex = entry.webex || {};
+    const webexLine = `<p class="mq-webex ${webex.sent ? 'sent' : 'not-sent'}"><i data-lucide="${webex.sent ? 'circle-check' : 'message-square-warning'}"></i>${escapeHtml(webex.message || '')}</p>`;
+    const note = state.mode === 'commute' ? '<p class="empty-note mq-note">MapQuest has no jeepney, bus or train routes, so this is its driving route.</p>' : '';
+    body.innerHTML = note + summary + directions + webexLine;
+    icons();
+  }
+
   /* ---------- Requests ---------- */
 
   function showRoute(route) {
     state.route = route;
     drawRoute(state.route, state.origin, state.destination);
-    renderSummary(); renderDirections(); renderFuel(); loadAlternatives(); loadWeather();
+    renderSummary(); renderDirections(); renderFuel(); loadAlternatives(); loadWeather(); loadMapQuest();
     recordTrip({ origin: state.origin, destination: state.destination, mode: state.mode, route });
     renderSaved();
     setStatus('Route found.', 'success');
@@ -667,15 +727,21 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
     if (!state.origin || !state.destination) { setStatus('Pick a start and destination from the suggestions.'); return; }
     setStatus(); setBusy(true);
     state.comparison = null; state.alternatives = {}; state.alternativesError = null; state.loadingAlternatives = null;
-    state.commuteItem = null; state.waitingForCommute = state.mode === 'commute'; state.editingTrip = false;
+    state.commuteItem = null; state.waitingForCommute = false; state.editingTrip = false;
+    state.mapquest = {}; // A new search asks MapQuest again, which posts a fresh Webex summary.
     loadCommute();
     try {
       if (!(await compareModes())) return;
-      if (state.mode === 'commute' && !cachedRoute('commute')) setStatus('Finding commute routes…');
-      if (!cachedRoute(state.mode)) {
-        const fastest = state.comparison.filter((item) => item.available).sort((a, b) => a.duration_ms - b.duration_ms)[0];
-        if (!fastest) { if (!state.waitingForCommute) setStatus(state.comparison[0]?.error || 'No route found between these places.'); return; }
-        state.mode = fastest.mode;
+      // A new search opens Drive (or the cycling/walking mode the user picked) and stays there:
+      // Commute results arrive later and are only listed, never opened automatically.
+      if (state.mode === 'commute' || !cachedRoute(state.mode)) {
+        const roads = state.comparison.filter((item) => item.mode !== 'commute' && item.available && item.route);
+        const pick = roads.find((item) => item.mode === 'car') || roads.sort((a, b) => a.duration_ms - b.duration_ms)[0];
+        if (!pick) {
+          // No road route at all: Commute is the only option left, so open it when it's ready.
+          state.waitingForCommute = true; setStatus('Finding commute routes…'); return;
+        }
+        state.mode = pick.mode;
       }
       markSelectedOption();
       showRoute(cachedRoute(state.mode));
@@ -722,7 +788,7 @@ import { PLACE_KINDS, clearHistory, dayLabel, findSavedPlace, getHistory, getPla
   function updateUnit(unit) {
     state.unit = unit; localStorage.setItem('maply-unit', unit);
     $$('[data-unit]').forEach((button) => button.classList.toggle('selected', button.dataset.unit === unit));
-    if (state.route) { renderSummary(); renderDirections(); renderFuel(); renderAlternatives(); renderWeather(); }
+    if (state.route) { renderSummary(); renderDirections(); renderFuel(); renderAlternatives(); renderWeather(); renderMapQuest(); }
     if (state.comparison) renderComparison();
   }
 
