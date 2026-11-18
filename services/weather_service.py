@@ -108,3 +108,119 @@ def weather_for(lat: float, lng: float) -> dict:
 def clear_cache() -> None:
     with _cache_lock:
         _cache.clear()
+
+
+# ---------- Weather for one trip (used by the MapQuest panel and the Webex summary) ----------
+
+HOUR_MS = 3_600_000
+
+
+def reading_at(weather: dict | None, time_ms: int, now_ms: int) -> dict | None:
+    """Current conditions for the next 90 minutes, otherwise the nearest 3-hour forecast slot.
+
+    Same rule as readingAt() in static/js/weather.js. None when the time is past the forecast.
+    """
+    if not weather:
+        return None
+    if weather.get("current") and abs(time_ms - now_ms) <= 1.5 * HOUR_MS:
+        return weather["current"]
+    slots = weather.get("forecast") or []
+    if not slots:
+        return None
+    best = min(slots, key=lambda slot: abs(slot["time"] - time_ms))
+    return best if abs(best["time"] - time_ms) <= 3 * HOUR_MS else None
+
+
+def rain_risk(reading: dict | None) -> str:
+    """'heavy', 'likely', 'possible' or 'low' (same bands as rainRisk() in weather.js)."""
+    if not reading:
+        return "low"
+    code = int(reading.get("code") or 800)
+    group = code // 100
+    if group == 2 or reading.get("rain_mm", 0) >= 7.5 or 502 <= code <= 531:
+        return "heavy"
+    if reading.get("pop", 0) >= 0.5 or group in (3, 5):
+        return "likely"
+    if reading.get("pop", 0) >= 0.25:
+        return "possible"
+    return "low"
+
+
+def condition_emoji(reading: dict) -> str:
+    code = int(reading.get("code") or 800)
+    group = code // 100
+    if group == 2:
+        return "⛈️"
+    if group == 3:
+        return "🌦️"
+    if group == 5:
+        return "🌧️"
+    if group == 7:
+        return "🌫️"
+    if code == 800:
+        return "☀️" if reading.get("is_day", True) else "🌙"
+    return "⛅" if code in (801, 802) else "☁️"
+
+
+def trip_advice(start: dict | None, end: dict | None, mode: str) -> list[str]:
+    """Short weather advice for the trip, most important first (no numbers, so it suits any units)."""
+    readings = [reading for reading in (start, end) if reading]
+    if not readings:
+        return []
+    order = {"low": 0, "possible": 1, "likely": 2, "heavy": 3}
+    rain = max((rain_risk(reading) for reading in readings), key=order.get)
+    feels = max(reading.get("feels_like_c", reading.get("temp_c", 0)) for reading in readings)
+    exposed = mode in ("bike", "foot")
+    advice = []
+    if rain == "heavy":
+        advice.append("⛈️ Heavy rain expected. Allow extra time and watch for flooded roads.")
+    elif rain == "likely":
+        advice.append("🌧️ Rain is likely. " + ("Bring rain gear, or consider driving or commuting." if exposed else "Bring an umbrella."))
+    elif rain == "possible":
+        advice.append("🌦️ There is a chance of rain. An umbrella is a good idea.")
+    if feels >= 42:
+        advice.append("🥵 Dangerous heat. Stay hydrated" + (" and avoid the midday sun." if exposed else "."))
+    elif feels >= 33:
+        advice.append("☀️ Hot weather. Bring water" + (" and take shade breaks." if exposed else "."))
+    if not advice:
+        advice.append("✅ Good weather for this trip.")
+    return advice
+
+
+def _brief(reading: dict | None) -> dict | None:
+    if not reading:
+        return None
+    return {
+        "time": reading["time"],
+        "temp_c": reading["temp_c"],
+        "feels_like_c": reading["feels_like_c"],
+        "description": reading.get("description") or reading.get("condition") or "",
+        "rain_chance": round(float(reading.get("pop", 0)) * 100),
+        "wind_kph": reading.get("wind_kph", 0),
+        "emoji": condition_emoji(reading),
+    }
+
+
+def trip_weather(origin: dict, destination: dict, depart_ms: int, seconds: int, mode: str, now_ms: int) -> dict | None:
+    """Weather when leaving the start and when arriving at the destination, plus advice.
+
+    Returns None (never raises) when weather is not configured or not reachable, so a trip
+    summary can always be sent without it.
+    """
+    try:
+        at_start = weather_for(origin["lat"], origin["lng"])
+        at_end = weather_for(destination["lat"], destination["lng"])
+    except ServiceError:
+        return None
+    arrive_ms = depart_ms + seconds * 1000
+    start = reading_at(at_start, depart_ms, now_ms)
+    end = reading_at(at_end, arrive_ms, now_ms)
+    if not start and not end:
+        return None
+    return {
+        "depart": depart_ms,
+        "arrive": arrive_ms,
+        "start": _brief(start),
+        "end": _brief(end),
+        "advice": trip_advice(start, end, mode),
+    }

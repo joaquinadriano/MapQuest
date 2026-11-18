@@ -169,12 +169,12 @@ After Maply finds a driving, cycling or walking route, it also asks the **MapQue
 
 Pick **Metric** (km, litres) or **English** (miles, US gallons) with the switch in the panel or at the bottom of the sidebar; the tables change straight away without another MapQuest request.
 
-Each new search also **posts a trip summary to a Webex Teams room** automatically, in the units selected at the time. The panel shows whether it was sent. Add these to `.env`:
+Each new search also **posts a trip summary to a Webex Teams room** automatically, in the units selected at the time. The summary includes the departure and arrival times and the **weather** when leaving and when arriving (temperature, feels-like, chance of rain, wind) with advice such as bringing an umbrella or water. Weather uses the same `OPENWEATHER_API_KEY`; without it the summary is sent without weather. The panel shows the weather too, says when the summary was sent, and has a **Send again** button (or **Try again** if sending failed). Long directions are folded to the first steps with a **Show all steps** button. Add these to `.env`:
 
 ```
 MAPQUEST_API_KEY=your_mapquest_api_key_here
-WEBEX_ACCESS_TOKEN=your_webex_access_token_here
+WEBEX_ACCESS_TOKEN=your_webex_bot_or_personal_token_here
 WEBEX_ROOM_ID=your_webex_room_id_here
 ```
 
-Without the Webex values the MapQuest panel still works and says Webex is not set up. Personal Webex access tokens expire after 12 hours; refresh `WEBEX_ACCESS_TOKEN` from developer.webex.com when the panel reports an expired token. The server code is in `services/mapquest_service.py`, `services/webex_service.py` and the `POST /api/mapquest` endpoint in `routes/api.py`.
+Without the Webex values the MapQuest panel still works and says Webex is not set up. A **Webex bot** token is recommended (create one at developer.webex.com/my-apps/new/bot and add the bot to the space): messages then come from the bot, and its token does not expire. Personal Webex access tokens expire after 12 hours; refresh `WEBEX_ACCESS_TOKEN` from developer.webex.com when the panel reports an expired token. The server code is in `services/mapquest_service.py`, `services/webex_service.py` and the `POST /api/mapquest` endpoint in `routes/api.py`.

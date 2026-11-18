@@ -18,7 +18,7 @@ from services.graphhopper_service import (
     route_for,
 )
 from services.mapquest_service import route_for as mapquest_route_for
-from services.weather_service import weather_for
+from services.weather_service import trip_weather, weather_for
 from services.webex_service import send_summary as send_webex_summary
 
 api = Blueprint("api", __name__)
@@ -164,19 +164,21 @@ def commute_endpoint():
     if abs(origin["lat"] - destination["lat"]) < 1e-6 and abs(origin["lng"] - destination["lng"]) < 1e-6:
         raise ServiceError("Origin and destination cannot be the same place.", 400)
 
-    depart_at = body.get("depart_at")
-    if depart_at is not None:
-        try:
-            depart_at = int(depart_at)
-        except (TypeError, ValueError):
-            raise ServiceError("Choose a valid departure time.", 400)
-        now_ms = int(time() * 1000)
-        if depart_at < now_ms - 5 * 60_000 or depart_at > now_ms + 30 * 24 * 3_600_000:
-            raise ServiceError("Choose a departure time between now and 30 days from now.", 400)
-        if depart_at <= now_ms:
-            depart_at = None  # "Now" (allowing for small clock differences).
-
+    depart_at = _departure(body.get("depart_at"), int(time() * 1000))
     return jsonify({"routes": commute_routes(origin, destination, depart_at), "origin": origin, "destination": destination})
+
+
+def _departure(value, now_ms: int) -> int | None:
+    """A validated future departure time in ms, or None for "now"."""
+    if value is None:
+        return None
+    try:
+        depart_at = int(value)
+    except (TypeError, ValueError):
+        raise ServiceError("Choose a valid departure time.", 400)
+    if depart_at < now_ms - 5 * 60_000 or depart_at > now_ms + 30 * 24 * 3_600_000:
+        raise ServiceError("Choose a departure time between now and 30 days from now.", 400)
+    return depart_at if depart_at > now_ms else None  # Allow for small clock differences.
 
 
 @api.post("/api/mapquest")
@@ -190,8 +192,17 @@ def mapquest_endpoint():
         raise ServiceError("Origin and destination cannot be the same place.", 400)
 
     unit = "imperial" if body.get("unit") in ("imperial", "english") else "metric"
+    now_ms = int(time() * 1000)
+    depart_ms = _departure(body.get("depart_at"), now_ms) or now_ms
     trip = mapquest_route_for(origin, destination, str(body.get("mode", "car")))
-    return jsonify({"trip": trip.to_dict(), "unit": unit, "webex": send_webex_summary(trip, unit)})
+    # Weather is optional: without an OpenWeatherMap key (or if it is down) the summary is sent without it.
+    weather = trip_weather(origin, destination, depart_ms, trip.seconds, trip.mode, now_ms)
+    return jsonify({
+        "trip": trip.to_dict(),
+        "unit": unit,
+        "weather": weather,
+        "webex": send_webex_summary(trip, unit, weather),
+    })
 
 
 @api.get("/api/weather")
